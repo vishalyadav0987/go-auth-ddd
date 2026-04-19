@@ -1,0 +1,1 @@
+ALTER TABLE otps ADD COLUMN mobile VARCHAR(15);

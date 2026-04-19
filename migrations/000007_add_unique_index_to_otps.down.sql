@@ -1,0 +1,1 @@
+DROP INDEX idx_otps_user_id;

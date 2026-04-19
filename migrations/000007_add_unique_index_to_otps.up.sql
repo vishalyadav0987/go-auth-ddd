@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX idx_otps_user_id ON otps(user_id);

@@ -1,0 +1,3 @@
+ALTER TABLE otps
+DROP COLUMN mobile,
+DROP COLUMN user_id;
