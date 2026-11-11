@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	authapp "github.com/vishalyadav0987/authentication/internal/application/auth"
 	"github.com/vishalyadav0987/authentication/internal/application/order"
+	"github.com/vishalyadav0987/authentication/internal/application/payment"
 	"github.com/vishalyadav0987/authentication/internal/config"
 	"github.com/vishalyadav0987/authentication/internal/infrastructure/hash"
 	"github.com/vishalyadav0987/authentication/internal/infrastructure/id"
@@ -85,6 +86,18 @@ func main() {
 		orderIDGenerator,
 	)
 
+	paymentRepo := postgres.NewPaymentRepository(db)
+	paymentIDGenerator := id.NewPaymentIDGenerator()
+
+	cashfreeClient := payment.NewCashfreeClient(cfg.CashfreeConfig)
+
+	createPaymentUC := payment.NewCreatePaymentUseCase(
+		orderRepo,
+		paymentRepo,
+		cashfreeClient,
+		paymentIDGenerator,
+	)
+
 	// Extract authenticated user ID from JWT
 	getUserID := func(c *gin.Context) (string, error) {
 		authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
@@ -119,10 +132,16 @@ func main() {
 		getUserID,
 	)
 
+	paymentHandler := handler.NewPaymentHandler(
+		createPaymentUC,
+		getUserID,
+	)
+
 	// Register HTTP routes
 	router := httpApp.SetUpRouter(
 		authHandler,
 		orderHandler,
+		paymentHandler,
 	)
 
 	// 1. creating Router

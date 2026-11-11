@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/vishalyadav0987/authentication/internal/infrastructure/payment/cashfree"
 )
 
 type Config struct {
@@ -13,6 +14,7 @@ type Config struct {
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
+	CashfreeConfig  cashfree.Config
 }
 
 func MustLoad() *Config {
@@ -26,10 +28,26 @@ func MustLoad() *Config {
 	accessTTL, _ := time.ParseDuration(os.Getenv("ACCESS_TOKEN_TTL"))
 	refreshTTL, _ := time.ParseDuration(os.Getenv("REFRESH_TOKEN_TTL"))
 
+	baseURL := "https://sandbox.cashfree.com/pg"
+	if os.Getenv("CASHFREE_ENV") == "production" {
+		baseURL = "https://api.cashfree.com/pg"
+	}
+
+	apiVersion := os.Getenv("CASHFREE_API_VERSION")
+	if apiVersion == "" {
+		apiVersion = "2023-08-01"
+	}
+
 	return &Config{
 		AppPort:         os.Getenv("APP_PORT"),
 		JWTSecret:       os.Getenv("JWT_SECRET"),
 		AccessTokenTTL:  accessTTL,
 		RefreshTokenTTL: refreshTTL,
+		CashfreeConfig: cashfree.Config{
+			ClientID:     os.Getenv("CASHFREE_APP_ID"),
+			ClientSecret: os.Getenv("CASHFREE_SECRET_KEY"),
+			BaseURL:      baseURL,
+			APIVersion:   apiVersion,
+		},
 	}
 }

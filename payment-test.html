@@ -1,0 +1,35 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cashfree Payment Test</title>
+    <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+</head>
+<body>
+    <h2>Cashfree Sandbox Payment</h2>
+
+    <button onclick="makePayment()">Pay Now</button>
+
+    <script>
+        const cashfree = Cashfree({
+            mode: "sandbox"
+        });
+
+        async function makePayment() {
+            const paymentSessionId = "session_WJOnvKQALcVhKzKJb6yowkHWt-zyp-p9KO5nDdBuxGY6hNA7NbKNe8RdPFxwcLZPi9vaBXnarJpSfBswXAit-HIZSmfl7b0s71HrGV5P_fmH86q1MU4Rc0LdCpCtBApaymentpayment";
+
+            try {
+                const result = await cashfree.checkout({
+                    paymentSessionId: paymentSessionId,
+                    redirectTarget: "_self"
+                });
+
+                console.log("Checkout result:", result);
+            } catch (error) {
+                console.error("Payment error:", error);
+                alert("Unable to open payment checkout.");
+            }
+        }
+    </script>
+</body>
+</html>
