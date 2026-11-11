@@ -21,6 +21,7 @@ import (
 	"github.com/vishalyadav0987/authentication/internal/infrastructure/id"
 	"github.com/vishalyadav0987/authentication/internal/infrastructure/notify/email"
 	"github.com/vishalyadav0987/authentication/internal/infrastructure/otp"
+	"github.com/vishalyadav0987/authentication/internal/infrastructure/payment/cashfree"
 	"github.com/vishalyadav0987/authentication/internal/infrastructure/persistence/postgres"
 	"github.com/vishalyadav0987/authentication/internal/infrastructure/queue"
 	postgresRate "github.com/vishalyadav0987/authentication/internal/infrastructure/rate_limiter/postgres"
@@ -89,7 +90,7 @@ func main() {
 	paymentRepo := postgres.NewPaymentRepository(db)
 	paymentIDGenerator := id.NewPaymentIDGenerator()
 
-	cashfreeClient := payment.NewCashfreeClient(cfg.CashfreeConfig)
+	cashfreeClient := cashfree.NewClient(cfg.CashfreeConfig)
 
 	createPaymentUC := payment.NewCreatePaymentUseCase(
 		orderRepo,
@@ -137,11 +138,21 @@ func main() {
 		getUserID,
 	)
 
+	handleWebhookUseCase := payment.NewHandleWebhookUseCase(
+		paymentRepo,
+	)
+
+	webhookHandler := handler.NewPaymentWebhookHandler(
+		cashfreeClient,
+		handleWebhookUseCase,
+	)
+
 	// Register HTTP routes
 	router := httpApp.SetUpRouter(
 		authHandler,
 		orderHandler,
 		paymentHandler,
+		webhookHandler,
 	)
 
 	// 1. creating Router

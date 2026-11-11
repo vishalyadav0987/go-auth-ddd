@@ -1,33 +1,348 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Cashfree Payment Test</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Checkout</title>
     <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+    <style>
+        :root {
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --glass: rgba(255, 255, 255, 0.07);
+            --glass-border: rgba(255, 255, 255, 0.14);
+            --accent-1: #6366f1;
+            --accent-2: #a855f7;
+            --accent-3: #ec4899;
+            --ok: #4ade80;
+            --err: #f87171;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text);
+            background: #0b1020;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Animated background blobs */
+        .blob {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(90px);
+            opacity: 0.55;
+            animation: float 14s ease-in-out infinite;
+            z-index: 0;
+        }
+        .blob.b1 { width: 380px; height: 380px; background: var(--accent-1); top: -80px;  left: -80px; }
+        .blob.b2 { width: 420px; height: 420px; background: var(--accent-2); bottom: -120px; right: -100px; animation-delay: -5s; }
+        .blob.b3 { width: 260px; height: 260px; background: var(--accent-3); top: 45%; left: 55%; animation-delay: -9s; opacity: 0.35; }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50%      { transform: translate(40px, -30px) scale(1.12); }
+        }
+
+        .card {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 430px;
+            padding: 30px 26px 24px;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            backdrop-filter: blur(22px);
+            -webkit-backdrop-filter: blur(22px);
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+            animation: rise 0.6s ease-out both;
+        }
+
+        @keyframes rise {
+            from { opacity: 0; transform: translateY(24px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 22px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .logo {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            font-size: 16px;
+            background: linear-gradient(135deg, var(--accent-1), var(--accent-3));
+        }
+
+        .test-tag {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 5px 10px;
+            border-radius: 999px;
+            color: #fde68a;
+            background: rgba(250, 204, 21, 0.14);
+            border: 1px solid rgba(250, 204, 21, 0.35);
+        }
+
+        .amount-label {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .amount {
+            font-size: 46px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin: 4px 0 22px;
+            background: linear-gradient(90deg, #fff, #c7d2fe);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .summary {
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 6px 16px;
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 12px 0;
+            font-size: 14px;
+        }
+
+        .row + .row { border-top: 1px dashed var(--glass-border); }
+        .row span:first-child { color: var(--muted); }
+        .row span:last-child  { font-weight: 600; text-align: right; word-break: break-all; }
+
+        .methods {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 18px 0 4px;
+        }
+
+        .chip {
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            color: #cbd5e1;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid var(--glass-border);
+        }
+
+        .pay-btn {
+            position: relative;
+            overflow: hidden;
+            width: 100%;
+            margin-top: 20px;
+            padding: 16px;
+            font-size: 17px;
+            font-weight: 700;
+            color: #fff;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background: linear-gradient(90deg, var(--accent-1), var(--accent-2), var(--accent-3));
+            background-size: 200% 100%;
+            transition: background-position 0.5s, transform 0.1s, box-shadow 0.2s;
+            box-shadow: 0 10px 30px rgba(168, 85, 247, 0.4);
+        }
+
+        .pay-btn:hover:not(:disabled) {
+            background-position: 100% 0;
+            box-shadow: 0 14px 36px rgba(236, 72, 153, 0.45);
+        }
+        .pay-btn:active:not(:disabled) { transform: scale(0.985); }
+        .pay-btn:disabled { opacity: 0.75; cursor: not-allowed; }
+
+        /* Shimmer sweep */
+        .pay-btn::after {
+            content: "";
+            position: absolute;
+            top: 0; left: -120%;
+            width: 60%; height: 100%;
+            background: linear-gradient(120deg, transparent, rgba(255,255,255,0.35), transparent);
+            transform: skewX(-20deg);
+            animation: shimmer 3.2s infinite;
+        }
+
+        @keyframes shimmer {
+            0%   { left: -120%; }
+            60%, 100% { left: 160%; }
+        }
+
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            display: none;
+        }
+        .pay-btn.loading .spinner { display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .status {
+            display: none;
+            margin-top: 16px;
+            padding: 12px 14px;
+            font-size: 13px;
+            line-height: 1.5;
+            border-radius: 12px;
+            word-break: break-word;
+        }
+        .status.error   { display: block; color: var(--err); background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.35); }
+        .status.success { display: block; color: var(--ok);  background: rgba(74, 222, 128, 0.1);  border: 1px solid rgba(74, 222, 128, 0.35); }
+
+        .secure {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 18px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+    </style>
 </head>
 <body>
-    <h2>Cashfree Sandbox Payment</h2>
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
 
-    <button onclick="makePayment()">Pay Now</button>
+    <main class="card">
+        <div class="top">
+            <div class="brand">
+                <div class="logo">💳</div>
+                <span id="merchantName">My Store</span>
+            </div>
+            <span class="test-tag">Sandbox</span>
+        </div>
+
+        <p class="amount-label">Amount to pay</p>
+        <div class="amount" id="amountText">₹0.00</div>
+
+        <div class="summary">
+            <div class="row"><span>Order ID</span><span id="orderIdText">-</span></div>
+            <div class="row"><span>Description</span><span id="descText">-</span></div>
+        </div>
+
+        <div class="methods">
+            <span class="chip">UPI</span>
+            <span class="chip">Cards</span>
+            <span class="chip">Net Banking</span>
+            <span class="chip">Wallets</span>
+        </div>
+
+        <button class="pay-btn" id="payBtn" onclick="makePayment()">
+            <span class="spinner"></span>
+            <span id="btnText">Pay Now</span>
+        </button>
+
+        <div id="status" class="status"></div>
+
+        <div class="secure">🔒 Secured by Cashfree Payments &middot; Test mode, no real money</div>
+    </main>
 
     <script>
-        const cashfree = Cashfree({
-            mode: "sandbox"
-        });
+        // =====================================================
+        //  CONFIG: yahin se sab values change karo
+        // =====================================================
+        const CONFIG = {
+            paymentSessionId: "session_oQ8CFK6R8yTbwk6CCaRo9FtWcujATZuqLayVzjiuDuWCsXfUPtJw5H0dj5MjbTon-teaW0y_Fz9cKh2msX9ksGxzo6HqsJz4wegVLeaBlyv49GHYaRlNdZ7bgfeKEgpaymentpayment",
+            merchantName: "My Store",
+            orderId: "ORD-25d1ebf5-f2ad-4108-b165-b6bacc271aa5",
+            amount: 50.00,
+            description: "Mutual fund lumpsum investment"
+        };
+        // =====================================================
+
+        const cashfree = Cashfree({ mode: "sandbox" });
+
+        const payBtn = document.getElementById("payBtn");
+        const btnText = document.getElementById("btnText");
+        const statusBox = document.getElementById("status");
+
+        // Fill UI from CONFIG
+        document.getElementById("merchantName").textContent = CONFIG.merchantName;
+        document.getElementById("orderIdText").textContent = CONFIG.orderId;
+        document.getElementById("descText").textContent = CONFIG.description;
+        document.getElementById("amountText").textContent =
+            "₹" + CONFIG.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 });
+
+        function showStatus(type, message) {
+            statusBox.className = "status " + type;
+            statusBox.textContent = message;
+        }
+
+        function setLoading(isLoading) {
+            payBtn.disabled = isLoading;
+            payBtn.classList.toggle("loading", isLoading);
+            btnText.textContent = isLoading ? "Opening secure checkout..." : "Pay Now";
+        }
 
         async function makePayment() {
-            const paymentSessionId = "session_WJOnvKQALcVhKzKJb6yowkHWt-zyp-p9KO5nDdBuxGY6hNA7NbKNe8RdPFxwcLZPi9vaBXnarJpSfBswXAit-HIZSmfl7b0s71HrGV5P_fmH86q1MU4Rc0LdCpCtBApaymentpayment";
+            statusBox.className = "status";
+
+            if (!CONFIG.paymentSessionId || CONFIG.paymentSessionId.startsWith("PASTE_")) {
+                showStatus("error", "CONFIG.paymentSessionId me apni payment_session_id paste karo.");
+                return;
+            }
+
+            setLoading(true);
 
             try {
                 const result = await cashfree.checkout({
-                    paymentSessionId: paymentSessionId,
+                    paymentSessionId: CONFIG.paymentSessionId,
                     redirectTarget: "_self"
                 });
 
                 console.log("Checkout result:", result);
+
+                if (result && result.error) {
+                    showStatus("error", result.error.message || "Payment failed.");
+                } else if (result && result.paymentDetails) {
+                    showStatus("success", "Payment submitted. Confirmation server se aayega (webhook).");
+                }
             } catch (error) {
                 console.error("Payment error:", error);
-                alert("Unable to open payment checkout.");
+                showStatus("error", "Unable to open payment checkout.");
+            } finally {
+                setLoading(false);
             }
         }
     </script>

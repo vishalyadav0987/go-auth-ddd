@@ -5,7 +5,7 @@ import (
 	"github.com/vishalyadav0987/authentication/internal/interfaces/http/handler"
 )
 
-func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHandler, paymentHandler *handler.PaymentHandler) *gin.Engine {
+func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHandler, paymentHandler *handler.PaymentHandler, webhookHandler *handler.PaymentWebhookHandler) *gin.Engine {
 	router := gin.Default()
 
 	auth := router.Group("api/v1/auth")
@@ -29,6 +29,11 @@ func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHa
 	{
 		payment.POST("/create", paymentHandler.CreatePayment)
 	}
+
+	router.POST(
+		"/api/v1/payments/webhook",
+		webhookHandler.Handle,
+	)
 
 	return router
 }
