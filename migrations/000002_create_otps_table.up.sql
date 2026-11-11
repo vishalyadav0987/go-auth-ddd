@@ -2,6 +2,6 @@ CREATE TABLE IF NOT EXISTS otps (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL UNIQUE,
     code TEXT NOT NULL,
-    expires_at DATETIME NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
     verified BOOLEAN DEFAULT FALSE
 );

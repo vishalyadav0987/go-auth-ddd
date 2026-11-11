@@ -9,15 +9,14 @@ import (
 
 	"github.com/vishalyadav0987/authentication/internal/domain/auth"
 	"github.com/vishalyadav0987/authentication/internal/infrastructure/hash"
-	"github.com/vishalyadav0987/authentication/internal/infrastructure/persistence/sqlite"
 )
 
 type OtpService struct {
-	repo   *sqlite.OtpRepository
+	repo   auth.OTPRepository
 	hasher hash.BcryptHasher
 }
 
-func NewOTPService(repo *sqlite.OtpRepository, hasher hash.BcryptHasher) *OtpService {
+func NewOTPService(repo auth.OTPRepository, hasher hash.BcryptHasher) *OtpService {
 	return &OtpService{repo: repo, hasher: hasher}
 }
 

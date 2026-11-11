@@ -5,7 +5,7 @@ import (
 	"github.com/vishalyadav0987/authentication/internal/interfaces/http/handler"
 )
 
-func SetUpRouter(authHandler *handler.AuthHandler) *gin.Engine {
+func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHandler) *gin.Engine {
 	router := gin.Default()
 
 	auth := router.Group("api/v1/auth")
@@ -18,6 +18,11 @@ func SetUpRouter(authHandler *handler.AuthHandler) *gin.Engine {
 		auth.POST("/password/reset/request", authHandler.SendResetOtp)
 		auth.POST("/password/reset/verify-otp", authHandler.VerifyResetOtp)
 		auth.POST("/password/reset/confirm", authHandler.CreateNewPassword)
+	}
+
+	order := router.Group("api/v1/order")
+	{
+		order.POST("/create", orderHandler.CreateOrder)
 	}
 
 	return router

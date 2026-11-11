@@ -1,4 +1,4 @@
-package sqlite
+package postgres
 
 import (
 	"context"
@@ -20,16 +20,16 @@ func NewOtpRepository(db *sql.DB) *OtpRepository {
 	return &OtpRepository{db: db}
 }
 
+// Save implements domain.OTPRepository
 func (r *OtpRepository) Save(ctx context.Context, userID, otpHash string, expiresAt time.Time) error {
-
 	id := uuid.NewString()
 
 	query := `
-	INSERT INTO otps (id, user_id, code, expires_at)
-	VALUES (?, ?, ?, ?)
-	ON CONFLICT(user_id) DO UPDATE SET
-		code = excluded.code,
-		expires_at = excluded.expires_at
+		INSERT INTO otps (id, user_id, code, expires_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT(user_id) DO UPDATE SET
+			code = EXCLUDED.code,
+			expires_at = EXCLUDED.expires_at
 	`
 
 	_, err := r.db.ExecContext(
@@ -48,8 +48,9 @@ func (r *OtpRepository) Save(ctx context.Context, userID, otpHash string, expire
 	return nil
 }
 
+// Find implements domain.OTPRepository
 func (r *OtpRepository) Find(ctx context.Context, userID string) (string, time.Time, error) {
-	query := `SELECT code, expires_at FROM otps WHERE user_id = ?`
+	query := `SELECT code, expires_at FROM otps WHERE user_id = $1`
 
 	row := r.db.QueryRowContext(ctx, query, userID)
 
@@ -70,8 +71,9 @@ func (r *OtpRepository) Find(ctx context.Context, userID string) (string, time.T
 	return otpHash, expiresAt, nil
 }
 
+// Delete implements domain.OTPRepository
 func (r *OtpRepository) Delete(ctx context.Context, userID string) error {
-	query := `DELETE FROM otps WHERE user_id = ?`
+	query := `DELETE FROM otps WHERE user_id = $1`
 
 	result, err := r.db.ExecContext(ctx, query, userID)
 	if err != nil {

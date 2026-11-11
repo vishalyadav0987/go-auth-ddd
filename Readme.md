@@ -2,7 +2,7 @@
 
 ![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)
 ![Architecture](https://img.shields.io/badge/Architecture-DDD%20%7C%20Clean-green)
-![Database](https://img.shields.io/badge/Database-SQLite3-lightgrey)
+![Database](https://img.shields.io/badge/Database-PostgreSQL-blue)
 ![Status](https://img.shields.io/badge/Status-Production--Ready-success)
 
 ---
@@ -45,7 +45,7 @@ AUTHENTICATION/
 │   │   ├── id/              # ID generation (UUID etc.)
 │   │   ├── notify/          # Email/SMS services
 │   │   ├── otp/             # OTP generation & verification
-│   │   ├── persistence/     # Database (SQLite repositories)
+│   │   ├── persistence/     # Database (PostgreSQL repositories)
 │   │   ├── rate_limiter/    # Rate limiting logic
 │   │   └── token/           # JWT token management
 │   │
@@ -60,7 +60,6 @@ AUTHENTICATION/
 │   └── response/            # Common API response structure
 │
 ├── .env                     # Environment variables
-├── auth.db                  # SQLite database
 ├── go.mod
 ├── go.sum
 ├── README.md
@@ -158,7 +157,7 @@ The authentication system uses **purpose-based JWT tokens** to ensure secure and
 | --------- | -------------- |
 | Language  | Go (Golang)    |
 | Router    | Gin            |
-| Database  | SQLite3        |
+| Database  | PostgreSQL     |
 | Migration | golang-migrate |
 | Auth      | JWT            |
 | Hashing   | bcrypt         |
@@ -191,9 +190,17 @@ Create `.env`:
 
 ```env
 APP_PORT=8069
-DB_PATH=./auth.db
 JWT_SECRET=supersecretkey
 ACCESS_TOKEN_TTL=15m
+REFRESH_TOKEN_TTL=168h
+
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=your_postgres_password
+DB_NAME=order_db
+DB_SSLMODE=disable
 ```
 
 ---

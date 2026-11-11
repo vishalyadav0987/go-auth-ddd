@@ -10,7 +10,6 @@ import (
 
 type Config struct {
 	AppPort         string
-	DBPath          string
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
@@ -29,7 +28,6 @@ func MustLoad() *Config {
 
 	return &Config{
 		AppPort:         os.Getenv("APP_PORT"),
-		DBPath:          os.Getenv("DB_PATH"),
 		JWTSecret:       os.Getenv("JWT_SECRET"),
 		AccessTokenTTL:  accessTTL,
 		RefreshTokenTTL: refreshTTL,

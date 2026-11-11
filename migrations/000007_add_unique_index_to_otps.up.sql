@@ -1,1 +1,1 @@
-CREATE UNIQUE INDEX idx_otps_user_id ON otps(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_otps_user_id ON otps(user_id);
