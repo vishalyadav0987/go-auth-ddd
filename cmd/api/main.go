@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	authapp "github.com/vishalyadav0987/authentication/internal/application/auth"
+	notificationApp "github.com/vishalyadav0987/authentication/internal/application/notification"
 	"github.com/vishalyadav0987/authentication/internal/application/order"
 	"github.com/vishalyadav0987/authentication/internal/application/payment"
 	"github.com/vishalyadav0987/authentication/internal/config"
@@ -147,12 +148,27 @@ func main() {
 		handleWebhookUseCase,
 	)
 
+	deadLetterHandler := handler.NewDeadLetterHandler(
+		notificationApp.NewGetDeadLetterDeliveriesUseCase(
+			postgres.NewNotificationRepository(db),
+		),
+	)
+
+	deadLetterDetailHandler := handler.NewDeadLetterDetailHandler(
+		notificationApp.NewGetDeadLetterDetailUseCase(
+			postgres.NewNotificationRepository(db),
+			postgres.NewDeliveryAttemptRepository(db),
+		),
+	)
+
 	// Register HTTP routes
 	router := httpApp.SetUpRouter(
 		authHandler,
 		orderHandler,
 		paymentHandler,
 		webhookHandler,
+		deadLetterHandler,
+		deadLetterDetailHandler,
 	)
 
 	// 1. creating Router

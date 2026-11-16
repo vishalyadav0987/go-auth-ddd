@@ -10,6 +10,7 @@ const (
 	DeliveryDelivered  DeliveryStatus = "DELIVERED"
 	DeliveryFailed     DeliveryStatus = "FAILED"
 	DeliveryCancelled  DeliveryStatus = "CANCELLED"
+	DeliveryUnknown    DeliveryStatus = "UNKNOWN"
 )
 
 func (s DeliveryStatus) IsValid() bool {
@@ -20,7 +21,8 @@ func (s DeliveryStatus) IsValid() bool {
 		DeliveryAccepted,
 		DeliveryDelivered,
 		DeliveryFailed,
-		DeliveryCancelled:
+		DeliveryCancelled,
+		DeliveryUnknown:
 		return true
 	default:
 		return false

@@ -5,7 +5,7 @@ import (
 	"github.com/vishalyadav0987/authentication/internal/interfaces/http/handler"
 )
 
-func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHandler, paymentHandler *handler.PaymentHandler, webhookHandler *handler.PaymentWebhookHandler) *gin.Engine {
+func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHandler, paymentHandler *handler.PaymentHandler, webhookHandler *handler.PaymentWebhookHandler, deadLetterHandler *handler.DeadLetterHandler, deadLetterDetailHandler *handler.DeadLetterDetailHandler) *gin.Engine {
 	router := gin.Default()
 
 	auth := router.Group("api/v1/auth")
@@ -28,6 +28,12 @@ func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHa
 	payment := router.Group("api/v1/payment")
 	{
 		payment.POST("/create", paymentHandler.CreatePayment)
+	}
+
+	notification := router.Group("api/v1/notification")
+	{
+		notification.GET("/dead-letter-deliveries", deadLetterHandler.GetDeadLetters)
+		notification.GET("/dead-letter-deliveries/:deliveryID", deadLetterDetailHandler.GetDeadLetterDetail)
 	}
 
 	router.POST(

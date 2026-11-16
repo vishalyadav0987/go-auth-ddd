@@ -2,14 +2,17 @@ package brevo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/vishalyadav0987/authentication/internal/domain/notification"
+	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
 )
 
 type SMTPEmailProvider struct {
@@ -87,20 +90,20 @@ func (s *SMTPEmailProvider) Send(
 	)
 
 	if err := client.Auth(auth); err != nil {
-		return fmt.Errorf("SMTP authentication failed: %w", err)
+		return classifySMTPError("AUTH", err)
 	}
 
 	if err := client.Mail(s.from); err != nil {
-		return fmt.Errorf("set sender: %w", err)
+		return classifySMTPError("MAIL FROM", err)
 	}
 
 	if err := client.Rcpt(to); err != nil {
-		return fmt.Errorf("set recipient: %w", err)
+		return classifySMTPError("RCPT TO", err)
 	}
 
 	writer, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("start SMTP message: %w", err)
+		return classifySMTPError("DATA", err)
 	}
 
 	message := fmt.Sprintf(
@@ -119,18 +122,67 @@ func (s *SMTPEmailProvider) Send(
 
 	if _, err := writer.Write([]byte(message)); err != nil {
 		_ = writer.Close()
-		return fmt.Errorf("write email message: %w", err)
+		return classifySMTPError("write email message", err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return fmt.Errorf("finish SMTP message: %w", err)
+		return classifySMTPError("finish SMTP message", err)
 	}
 
 	if err := client.Quit(); err != nil {
-		return fmt.Errorf("close SMTP session: %w", err)
+		return classifySMTPError("close SMTP session", err)
 	}
 
 	return nil
+}
+
+func classifySMTPError(
+	operation string,
+	err error,
+) error {
+	if err == nil {
+		return nil
+	}
+
+	var smtpErr *textproto.Error
+
+	if errors.As(err, &smtpErr) {
+		switch {
+		case smtpErr.Code >= 400 && smtpErr.Code < 500:
+			return domain.NewProviderError(
+				domain.ProviderErrorTransient,
+				"SMTP_TEMPORARY",
+				"temporary SMTP rejection during "+operation,
+				err,
+			)
+
+		case smtpErr.Code >= 500 && smtpErr.Code < 600:
+			return domain.NewProviderError(
+				domain.ProviderErrorPermanent,
+				"SMTP_PERMANENT",
+				"permanent SMTP rejection during "+operation,
+				err,
+			)
+		}
+	}
+
+	var netErr net.Error
+
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return domain.NewProviderError(
+			domain.ProviderErrorAmbiguous,
+			"SMTP_TIMEOUT",
+			"SMTP operation timed out during "+operation,
+			err,
+		)
+	}
+
+	return domain.NewProviderError(
+		domain.ProviderErrorAmbiguous,
+		"SMTP_UNKNOWN",
+		"SMTP outcome is uncertain during "+operation,
+		err,
+	)
 }
 
 var _ notification.EmailProvider = (*SMTPEmailProvider)(nil)

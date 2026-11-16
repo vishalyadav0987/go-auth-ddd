@@ -13,10 +13,11 @@ type NotificationDelivery struct {
 	ProviderID    string
 	FailureReason string
 
-	AttemptCount int
-	NextRetryAt  *time.Time
-	SentAt       *time.Time
-	DeliveredAt  *time.Time
+	AttemptCount   int
+	NextRetryAt    *time.Time
+	SentAt         *time.Time
+	DeliveredAt    *time.Time
+	DeadLetteredAt *time.Time
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
