@@ -4,6 +4,7 @@ import "errors"
 
 var (
 	ErrUserNotFound       = errors.New("user not found")
+	ErrInvalidRole        = errors.New("invalid user role")
 	ErrUserAlreadyExists  = errors.New("user already exists")
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUserNotVerified    = errors.New("user not verified")

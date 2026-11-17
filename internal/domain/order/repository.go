@@ -1,17 +1,6 @@
 package order
 
-import (
-	"context"
-	"time"
-)
-
-type OutboxEvent struct {
-	ID          string
-	AggregateID string
-	EventType   string
-	Payload     []byte
-	CreatedAt   time.Time
-}
+import "context"
 
 type OrderRepository interface {
 	Create(ctx context.Context, order *Order) error

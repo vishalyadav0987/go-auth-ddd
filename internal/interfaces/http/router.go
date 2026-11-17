@@ -5,7 +5,13 @@ import (
 	"github.com/vishalyadav0987/authentication/internal/interfaces/http/handler"
 )
 
-func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHandler, paymentHandler *handler.PaymentHandler, webhookHandler *handler.PaymentWebhookHandler, deadLetterHandler *handler.DeadLetterHandler, deadLetterDetailHandler *handler.DeadLetterDetailHandler) *gin.Engine {
+func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHandler, paymentHandler *handler.PaymentHandler, webhookHandler *handler.PaymentWebhookHandler, deadLetterHandler *handler.DeadLetterHandler, deadLetterDetailHandler *handler.DeadLetterDetailHandler,
+	retryDeadLetterHandler *handler.RetryDeadLetterHandler,
+	userNotificationHandler *handler.UserNotificationHandler,
+	sendNotificationHandler *handler.SendNotificationHandler,
+	requireAccessToken gin.HandlerFunc,
+	requireAdmin gin.HandlerFunc,
+) *gin.Engine {
 	router := gin.Default()
 
 	auth := router.Group("api/v1/auth")
@@ -30,10 +36,33 @@ func SetUpRouter(authHandler *handler.AuthHandler, orderHandler *handler.OrderHa
 		payment.POST("/create", paymentHandler.CreatePayment)
 	}
 
-	notification := router.Group("api/v1/notification")
+	// Dead-letter queue administration: authenticated admins only.
+	notification := router.Group(
+		"api/v1/notification",
+		requireAccessToken,
+		requireAdmin,
+	)
 	{
 		notification.GET("/dead-letter-deliveries", deadLetterHandler.GetDeadLetters)
 		notification.GET("/dead-letter-deliveries/:deliveryID", deadLetterDetailHandler.GetDeadLetterDetail)
+		notification.POST("/dead-letters/:deliveryID/retry", retryDeadLetterHandler.RetryDeadLetterDelivery)
+		notification.POST("/send", sendNotificationHandler.SendNotification)
+	}
+
+	// The authenticated user's own notifications, preferences and devices.
+	notifications := router.Group("api/v1/notifications", requireAccessToken)
+	{
+		notifications.GET("", userNotificationHandler.ListNotifications)
+		notifications.PATCH("/read-all", userNotificationHandler.MarkAllAsRead)
+
+		notifications.GET("/preferences", userNotificationHandler.GetPreferences)
+		notifications.PUT("/preferences", userNotificationHandler.UpdatePreferences)
+
+		notifications.POST("/devices", userNotificationHandler.RegisterDevice)
+		notifications.DELETE("/devices/:deviceID", userNotificationHandler.RemoveDevice)
+
+		notifications.GET("/:notificationID", userNotificationHandler.GetNotification)
+		notifications.PATCH("/:notificationID/read", userNotificationHandler.MarkAsRead)
 	}
 
 	router.POST(

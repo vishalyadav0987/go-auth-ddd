@@ -1,3 +1,11 @@
+// Now we'll create the application use case that allows an administrator to request a retry.
+
+// The responsibility of this use case is simple:
+// 1. Validate the delivery ID.
+// 2. Call PrepareDeadLetterRetry.
+// 3. Receive the updated delivery.
+// 4. Return retry information to the HTTP handler.
+// The actual database transaction and outbox insertion are already handled by the repository.
 package notification
 
 import (
@@ -62,34 +70,26 @@ func (uc *RetryDeadLetterDeliveryUseCase) Execute(
 		return nil, errors.New("admin ID is required")
 	}
 
-	// Step 3: Retrieve the current delivery to capture its previous cycle.
-	previousDelivery, err := uc.notificationRepository.GetDeliveryByID(
-		ctx,
-		input.DeliveryID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve delivery: %w", err)
-	}
-
-	if previousDelivery == nil || previousDelivery.DeadLetteredAt == nil {
-		return nil, domain.ErrDeliveryNotDeadLettered
-	}
-
-	previousCycle := previousDelivery.RetryCycle
-
-	// Step 4: Prepare the retry.
+	// Step 3: Atomically prepare the retry.
 	//
-	// The repository atomically resets the delivery and inserts
-	// the DELIVERY_RETRY_REQUESTED outbox event.
-	retriedDelivery, err := uc.notificationRepository.PrepareDeadLetterRetry(
+	// One repository transaction moves the delivery to a new retry cycle
+	// and inserts the DELIVERY_RETRY_REQUESTED outbox event. The previous
+	// cycle comes from the same UPDATE, so a concurrent retry request
+	// cannot slip in between a read and the update.
+	retriedDelivery, previousCycle, err := uc.notificationRepository.PrepareDeadLetterRetry(
 		ctx,
 		input.DeliveryID,
+		input.AdminID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare delivery retry: %w", err)
 	}
 
-	// Step 5: Build the response.
+	if retriedDelivery == nil {
+		return nil, domain.ErrDeliveryNotDeadLettered
+	}
+
+	// Step 4: Build the response.
 	return &RetryDeadLetterDeliveryOutput{
 		DeliveryID:     retriedDelivery.ID,
 		NotificationID: retriedDelivery.NotificationID,

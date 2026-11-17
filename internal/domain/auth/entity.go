@@ -11,6 +11,7 @@ type User struct {
 	mpinHash     string
 	hasMpin      bool
 	isVerified   bool
+	role         Role
 	createdAt    time.Time
 	updatedAt    time.Time
 }
@@ -46,6 +47,7 @@ func NewUser(
 		mpinHash:     mpinHash,
 		isVerified:   false,
 		hasMpin:      hasMpin,
+		role:         RoleUser,
 		createdAt:    now,
 		updatedAt:    now,
 	}
@@ -88,6 +90,21 @@ func (u *User) CreatedAt() time.Time {
 
 func (u *User) UpdatedAt() time.Time {
 	return u.updatedAt
+}
+
+// Role returns the user's authorisation role.
+func (u *User) Role() Role {
+	return u.role
+}
+
+// AssignRole sets the user's role. Unknown roles are rejected.
+func (u *User) AssignRole(role Role) error {
+	if !role.IsValid() {
+		return ErrInvalidRole
+	}
+
+	u.role = role
+	return nil
 }
 
 func (u *User) MarkVerified() {

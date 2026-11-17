@@ -77,10 +77,13 @@ func (uc *VerifyOtpUsecase) Execute(
 
 	switch claims.TokenType {
 	case TokenTypeOtpVerificationToken:
+		// First factor passed: issue the OTP access token, exactly like
+		// password login. The final (role-bearing) access token is only
+		// issued by MPIN login, so OTP alone never grants API access.
 		otpAccessToken, err := uc.token.GenerateToken(
 			claims.UserID,
 			claims.Phone,
-			TokenTypeAccessToken,
+			TokenTypeOtpAccessToken,
 			120*time.Hour,
 		)
 		if err != nil {

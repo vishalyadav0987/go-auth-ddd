@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	domain "github.com/vishalyadav0987/authentication/internal/domain/auth"
@@ -56,6 +57,7 @@ func (r *UserRepository) scanUser(row *sql.Row) (*domain.User, error) {
 		mpinHash     sql.NullString
 		hasMpin      bool
 		isVerified   bool
+		role         string
 		createdAt    time.Time
 		updatedAt    time.Time
 	)
@@ -69,6 +71,7 @@ func (r *UserRepository) scanUser(row *sql.Row) (*domain.User, error) {
 		&mpinHash,
 		&hasMpin,
 		&isVerified,
+		&role,
 		&createdAt,
 		&updatedAt,
 	)
@@ -98,6 +101,10 @@ func (r *UserRepository) scanUser(row *sql.Row) (*domain.User, error) {
 		user.MarkVerified()
 	}
 
+	if err := user.AssignRole(domain.Role(role)); err != nil {
+		return nil, fmt.Errorf("load user %s: %w", id, err)
+	}
+
 	return user, nil
 }
 
@@ -105,7 +112,7 @@ func (r *UserRepository) scanUser(row *sql.Row) (*domain.User, error) {
 func (r *UserRepository) FindByEmail(ctx context.Context, email domain.Email) (*domain.User, error) {
 	query := `
 		SELECT id, client_id, email, mobile, password_hash, mpin_hash,
-		       has_mpin, is_verified, created_at, updated_at
+		       has_mpin, is_verified, role, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
@@ -118,7 +125,7 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email domain.Email) (*
 func (r *UserRepository) FindByMobile(ctx context.Context, mobile domain.Mobile) (*domain.User, error) {
 	query := `
 		SELECT id, client_id, email, mobile, password_hash, mpin_hash,
-		       has_mpin, is_verified, created_at, updated_at
+		       has_mpin, is_verified, role, created_at, updated_at
 		FROM users
 		WHERE mobile = $1
 	`
@@ -131,7 +138,7 @@ func (r *UserRepository) FindByMobile(ctx context.Context, mobile domain.Mobile)
 func (r *UserRepository) FindByClientId(ctx context.Context, clientId string) (*domain.User, error) {
 	query := `
 		SELECT id, client_id, email, mobile, password_hash, mpin_hash,
-		       has_mpin, is_verified, created_at, updated_at
+		       has_mpin, is_verified, role, created_at, updated_at
 		FROM users
 		WHERE client_id = $1
 	`
@@ -144,7 +151,7 @@ func (r *UserRepository) FindByClientId(ctx context.Context, clientId string) (*
 func (r *UserRepository) FindById(ctx context.Context, userId string) (*domain.User, error) {
 	query := `
 		SELECT id, client_id, email, mobile, password_hash, mpin_hash,
-		       has_mpin, is_verified, created_at, updated_at
+		       has_mpin, is_verified, role, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -225,4 +232,82 @@ func (r *UserRepository) UpdatePassword(ctx context.Context, userID string, hash
 	}
 
 	return nil
+}
+
+// GetEmailsByUserIDs returns email addresses for multiple users.
+//
+// Users with NULL or empty email addresses are excluded.
+// The returned map uses user ID as the key and email as the value.
+func (r *UserRepository) GetEmailsByUserIDs(
+	ctx context.Context,
+	userIDs []string,
+) (map[string]string, error) {
+	emails := make(map[string]string)
+
+	if r == nil || r.db == nil {
+		return nil, errors.New("user database is not configured")
+	}
+
+	if len(userIDs) == 0 {
+		return emails, nil
+	}
+
+	// Remove empty IDs and duplicates before building the query.
+	uniqueIDs := make([]string, 0, len(userIDs))
+	seen := make(map[string]struct{}, len(userIDs))
+
+	for _, userID := range userIDs {
+		userID = strings.TrimSpace(userID)
+
+		if userID == "" {
+			continue
+		}
+
+		if _, exists := seen[userID]; exists {
+			continue
+		}
+
+		seen[userID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, userID)
+	}
+
+	if len(uniqueIDs) == 0 {
+		return emails, nil
+	}
+
+	// One array parameter instead of one placeholder per user: an
+	// all-users broadcast would otherwise exceed PostgreSQL's 65,535
+	// parameter limit.
+	const query = `
+		SELECT id, email
+		FROM users
+		WHERE id = ANY($1)
+		  AND email IS NOT NULL
+		  AND BTRIM(email) <> ''
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, uniqueIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get user emails: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			userID string
+			email  string
+		)
+
+		if err := rows.Scan(&userID, &email); err != nil {
+			return nil, fmt.Errorf("scan user email: %w", err)
+		}
+
+		emails[userID] = strings.TrimSpace(email)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user emails: %w", err)
+	}
+
+	return emails, nil
 }

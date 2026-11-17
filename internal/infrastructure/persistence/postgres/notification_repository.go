@@ -26,6 +26,17 @@ func NewNotificationRepository(db *sql.DB) *NotificationRepository {
 
 // First, we'll implement notification creation. We'll add the delivery and attempt-history methods in subsequent steps.
 
+// marshalTargetUserIDs always encodes a JSON array: a nil slice (e.g. an
+// ALL_USERS target) must be stored as [] rather than null, which the
+// chk_notifications_target_user_ids constraint rejects.
+func marshalTargetUserIDs(userIDs []string) ([]byte, error) {
+	if userIDs == nil {
+		userIDs = []string{}
+	}
+
+	return json.Marshal(userIDs)
+}
+
 func (r *NotificationRepository) CreateNotification(
 	ctx context.Context,
 	n *domain.Notification,
@@ -34,7 +45,7 @@ func (r *NotificationRepository) CreateNotification(
 		return domain.ErrInvalidNotification
 	}
 
-	targetJSON, err := json.Marshal(n.Target.UserIDs)
+	targetJSON, err := marshalTargetUserIDs(n.Target.UserIDs)
 	if err != nil {
 		return fmt.Errorf("marshal notification target: %w", err)
 	}
@@ -111,10 +122,10 @@ func (r *NotificationRepository) GetNotificationByID(
 		SELECT
 			id,
 			type,
-			title,
-			body,
-			email_subject,
-			html_body,
+			COALESCE(title, ''),
+			COALESCE(body, ''),
+			COALESCE(email_subject, ''),
+			COALESCE(html_body, ''),
 			target_type,
 			target_user_ids,
 			channels,
@@ -136,6 +147,7 @@ func (r *NotificationRepository) GetNotificationByID(
 		metadataJSON     []byte
 		priority         string
 		notificationType string
+		emailSubject     string
 		scheduledAt      sql.NullTime
 	)
 
@@ -148,7 +160,7 @@ func (r *NotificationRepository) GetNotificationByID(
 		&notificationType,
 		&n.Title,
 		&n.Body,
-		&n.Title,
+		&emailSubject,
 		&n.HTMLBody,
 		&targetType,
 		&targetJSON,
@@ -166,6 +178,12 @@ func (r *NotificationRepository) GetNotificationByID(
 		}
 
 		return nil, fmt.Errorf("get notification: %w", err)
+	}
+
+	// The domain model has no separate subject: the title is used as the
+	// email subject. Fall back to the stored subject if title is empty.
+	if n.Title == "" {
+		n.Title = emailSubject
 	}
 
 	n.Type = domain.NotificationType(notificationType)
@@ -270,47 +288,42 @@ func (r *NotificationRepository) CreateDeliveries(
 }
 
 // Now we need to retrieve an individual delivery record. The delivery processor uses this method to determine the recipient, channel, status, and retry information before sending.
-func (r *NotificationRepository) GetDeliveryByID(
-	ctx context.Context,
-	deliveryID string,
-) (*domain.NotificationDelivery, error) {
-	const query = `
-		SELECT
-			id,
-			notification_id,
-			user_id,
-			channel,
-			status,
-			recipient,
-			provider_id,
-			failure_reason,
-			attempt_count,
-			next_retry_at,
-			sent_at,
-			delivered_at,
-			created_at,
-			updated_at
-		FROM notification_deliveries
-		WHERE id = $1
-	`
+// deliveryColumns is the column list read by scanDelivery. Keep the two
+// in sync: every delivery read must include retry_cycle, which task
+// publishing, claiming and stale-task detection all depend on.
+const deliveryColumns = `
+	id,
+	notification_id,
+	user_id,
+	channel,
+	status,
+	recipient,
+	provider_id,
+	failure_reason,
+	attempt_count,
+	retry_cycle,
+	next_retry_at,
+	sent_at,
+	delivered_at,
+	dead_lettered_at,
+	created_at,
+	updated_at
+`
 
-	var delivery domain.NotificationDelivery
-
+func scanDelivery(row rowScanner) (*domain.NotificationDelivery, error) {
 	var (
-		channel       string
-		status        string
-		providerID    sql.NullString
-		failureReason sql.NullString
-		nextRetryAt   sql.NullTime
-		sentAt        sql.NullTime
-		deliveredAt   sql.NullTime
+		delivery       domain.NotificationDelivery
+		channel        string
+		status         string
+		providerID     sql.NullString
+		failureReason  sql.NullString
+		nextRetryAt    sql.NullTime
+		sentAt         sql.NullTime
+		deliveredAt    sql.NullTime
+		deadLetteredAt sql.NullTime
 	)
 
-	err := r.db.QueryRowContext(
-		ctx,
-		query,
-		deliveryID,
-	).Scan(
+	if err := row.Scan(
 		&delivery.ID,
 		&delivery.NotificationID,
 		&delivery.UserID,
@@ -320,31 +333,21 @@ func (r *NotificationRepository) GetDeliveryByID(
 		&providerID,
 		&failureReason,
 		&delivery.AttemptCount,
+		&delivery.RetryCycle,
 		&nextRetryAt,
 		&sentAt,
 		&deliveredAt,
+		&deadLetteredAt,
 		&delivery.CreatedAt,
 		&delivery.UpdatedAt,
-	)
-
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, domain.ErrDeliveryNotFound
-		}
-
-		return nil, fmt.Errorf("get notification delivery: %w", err)
+	); err != nil {
+		return nil, err
 	}
 
 	delivery.Channel = domain.NotificationChannel(channel)
 	delivery.Status = domain.DeliveryStatus(status)
-
-	if providerID.Valid {
-		delivery.ProviderID = providerID.String
-	}
-
-	if failureReason.Valid {
-		delivery.FailureReason = failureReason.String
-	}
+	delivery.ProviderID = providerID.String
+	delivery.FailureReason = failureReason.String
 
 	if nextRetryAt.Valid {
 		delivery.NextRetryAt = &nextRetryAt.Time
@@ -358,7 +361,70 @@ func (r *NotificationRepository) GetDeliveryByID(
 		delivery.DeliveredAt = &deliveredAt.Time
 	}
 
+	if deadLetteredAt.Valid {
+		delivery.DeadLetteredAt = &deadLetteredAt.Time
+	}
+
 	return &delivery, nil
+}
+
+func (r *NotificationRepository) GetDeliveryByID(
+	ctx context.Context,
+	deliveryID string,
+) (*domain.NotificationDelivery, error) {
+
+	delivery, err := scanDelivery(r.db.QueryRowContext(
+		ctx,
+		`SELECT `+deliveryColumns+` FROM notification_deliveries WHERE id = $1`,
+		deliveryID,
+	))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrDeliveryNotFound
+		}
+
+		return nil, fmt.Errorf("get notification delivery: %w", err)
+	}
+
+	return delivery, nil
+}
+
+// GetPendingDeliveriesByNotificationID returns the notification's
+// deliveries that are still PENDING (not yet claimed by a worker).
+func (r *NotificationRepository) GetPendingDeliveriesByNotificationID(
+	ctx context.Context,
+	notificationID string,
+) ([]*domain.NotificationDelivery, error) {
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`SELECT `+deliveryColumns+`
+		 FROM notification_deliveries
+		 WHERE notification_id = $1 AND status = 'PENDING'
+		 ORDER BY created_at, id`,
+		notificationID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get pending deliveries: %w", err)
+	}
+	defer rows.Close()
+
+	var deliveries []*domain.NotificationDelivery
+
+	for rows.Next() {
+		delivery, err := scanDelivery(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan pending delivery: %w", err)
+		}
+
+		deliveries = append(deliveries, delivery)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending deliveries: %w", err)
+	}
+
+	return deliveries, nil
 }
 
 // This method will also automatically maintain timestamps when a delivery is accepted or confirmed as delivered.
@@ -734,6 +800,7 @@ func (r *NotificationRepository) ClaimDelivery(
 	ctx context.Context,
 	deliveryID string,
 	processingToken string,
+	expectedRetryCycle int,
 ) (bool, error) {
 	if processingToken == "" {
 		return false, fmt.Errorf("processing token is required")
@@ -756,6 +823,7 @@ func (r *NotificationRepository) ClaimDelivery(
             processing_token = $2,
             updated_at = NOW()
         WHERE id = $1
+          AND retry_cycle = $3
           AND (
               status = 'PENDING'
               OR (
@@ -771,6 +839,7 @@ func (r *NotificationRepository) ClaimDelivery(
         `,
 		deliveryID,
 		processingToken,
+		expectedRetryCycle,
 	).Scan(&claimedID)
 
 	if err != nil {
@@ -1003,6 +1072,7 @@ func (r *NotificationRepository) HeartbeatDelivery(
 	ctx context.Context,
 	deliveryID string,
 	processingToken string,
+	expectedRetryCycle int,
 ) (bool, error) {
 	if processingToken == "" {
 		return false, fmt.Errorf("processing token is required")
@@ -1017,9 +1087,11 @@ func (r *NotificationRepository) HeartbeatDelivery(
         WHERE id = $1
           AND status = 'PROCESSING'
           AND processing_token = $2
+          AND retry_cycle = $3
         `,
 		deliveryID,
 		processingToken,
+		expectedRetryCycle,
 	)
 	if err != nil {
 		return false, fmt.Errorf("heartbeat delivery: %w", err)
@@ -1195,21 +1267,29 @@ func (r *NotificationRepository) GetDeadLetterDeliveries(
 
 // PrepareDeadLetterRetry atomically moves a DLQ delivery back to PENDING.
 //
-// It preserves the existing attempt history and clears the DLQ timestamp.
-// The returned delivery can then be scheduled through the outbox.
+// It preserves the existing attempt history and clears the DLQ timestamp,
+// and inserts the DELIVERY_RETRY_REQUESTED outbox event (recording the
+// requesting admin) in the same transaction.
+//
+// It returns the updated delivery and its previous retry cycle.
 func (r *NotificationRepository) PrepareDeadLetterRetry(
 	ctx context.Context,
 	deliveryID string,
-) (*domain.NotificationDelivery, error) {
+	adminID string,
+) (*domain.NotificationDelivery, int, error) {
 
 	if deliveryID == "" {
-		return nil, fmt.Errorf("delivery ID is required")
+		return nil, 0, fmt.Errorf("delivery ID is required")
+	}
+
+	if adminID == "" {
+		return nil, 0, fmt.Errorf("admin ID is required")
 	}
 
 	// Step 1: Begin database transaction.
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin DLQ retry transaction: %w", err)
+		return nil, 0, fmt.Errorf("failed to begin DLQ retry transaction: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -1273,63 +1353,259 @@ func (r *NotificationRepository) PrepareDeadLetterRetry(
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, domain.ErrDeliveryNotDeadLettered
+			return nil, 0, domain.ErrDeliveryNotDeadLettered
 		}
 
-		return nil, fmt.Errorf("failed to prepare dead-letter retry: %w", err)
+		return nil, 0, fmt.Errorf("failed to prepare dead-letter retry: %w", err)
 	}
 
 	// Step 2: Create an outbox event containing identifiers only.
-	event := domain.DeliveryRetryEvent{
+	retryEvent := domain.DeliveryRetryEvent{
 		DeliveryID:     delivery.ID,
 		NotificationID: delivery.NotificationID,
 		RetryCycle:     delivery.RetryCycle,
+		RequestedBy:    adminID,
 		RequestedAt:    time.Now().UTC(),
 	}
-	payload, err := json.Marshal(event)
+	payload, err := json.Marshal(retryEvent)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize retry event: %w", err)
+		return nil, 0, fmt.Errorf("failed to serialize retry event: %w", err)
 	}
 
-	// Step 3: Insert the event using the SAME transaction.
-	//
-	// IMPORTANT:
-	// Verify the column names against your existing outbox_events
-	// migration before using this query.
-	insertQuery := `
-		INSERT INTO outbox_events (
-			id,
-			event_type,
-			aggregate_id,
-			payload,
-			status,
-			attempts,
-			next_retry_at,
-			created_at,
-			updated_at
-		)
-		VALUES ($1, $2, $3, $4, 'PENDING', 0, NOW(), NOW(), NOW())
-	`
+	// Step 3: Insert the event into the notification outbox using the
+	// SAME transaction, so the reset and the event commit together.
+	outboxEvent := &domain.NotificationOutboxEvent{
+		ID:          uuid.NewString(),
+		EventType:   domain.OutboxEventDeliveryRetryRequested,
+		AggregateID: delivery.ID,
+		Payload:     payload,
+	}
 
-	_, err = tx.ExecContext(
-		ctx,
-		insertQuery,
-		uuid.NewString(),
-		domain.OutboxEventDeliveryRetryRequested,
-		delivery.ID,
-		payload,
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert retry outbox event: %w", err)
+	if err := insertNotificationOutboxEvent(ctx, tx, outboxEvent); err != nil {
+		return nil, 0, fmt.Errorf("failed to insert retry outbox event: %w", err)
 	}
 
 	// Step 4: Commit both changes together.
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit DLQ retry transaction: %w", err)
+		return nil, 0, fmt.Errorf("failed to commit DLQ retry transaction: %w", err)
 	}
 
-	return delivery, nil
+	// retry_cycle was incremented by exactly one in the same atomic
+	// UPDATE, so the previous cycle is derived without a separate read.
+	return delivery, delivery.RetryCycle - 1, nil
+}
+
+func (r *NotificationRepository) CreateNotificationWithDeliveriesAndOutbox(
+	ctx context.Context,
+	n *domain.Notification,
+	deliveries []*domain.NotificationDelivery,
+	event *domain.NotificationOutboxEvent,
+) error {
+	// Step 1: Validate the input.
+	if r == nil || r.db == nil {
+		return fmt.Errorf("notification database is not configured")
+	}
+
+	if n == nil {
+		return domain.ErrInvalidNotification
+	}
+
+	if err := n.Validate(); err != nil {
+		return fmt.Errorf("validate notification: %w", err)
+	}
+
+	if len(deliveries) == 0 {
+		return domain.ErrNoRecipients
+	}
+
+	if event == nil {
+		return fmt.Errorf("notification outbox event is required")
+	}
+
+	// Every delivery must belong to the notification being created.
+	for _, delivery := range deliveries {
+		if delivery == nil {
+			return fmt.Errorf("delivery cannot be nil")
+		}
+
+		if delivery.NotificationID != n.ID {
+			return fmt.Errorf(
+				"delivery %s belongs to notification %s, expected %s",
+				delivery.ID,
+				delivery.NotificationID,
+				n.ID,
+			)
+		}
+	}
+
+	// Step 2: Begin one database transaction.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin notification creation transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Step 3: Serialize notification JSON fields.
+	targetJSON, err := marshalTargetUserIDs(n.Target.UserIDs)
+	if err != nil {
+		return fmt.Errorf("marshal notification target: %w", err)
+	}
+
+	channelsJSON, err := json.Marshal(n.Channels)
+	if err != nil {
+		return fmt.Errorf("marshal notification channels: %w", err)
+	}
+
+	metadataJSON, err := json.Marshal(n.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal notification metadata: %w", err)
+	}
+
+	if n.Metadata == nil {
+		metadataJSON = []byte("{}")
+	}
+
+	// Step 4: Insert the notification.
+	const notificationQuery = `
+        INSERT INTO notifications (
+            id,
+            type,
+            title,
+            body,
+            email_subject,
+            html_body,
+            target_type,
+            target_user_ids,
+            channels,
+            priority,
+            metadata,
+            scheduled_at,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8::jsonb, $9::jsonb, $10,
+            $11::jsonb, $12, $13, $14
+        )
+    `
+
+	_, err = tx.ExecContext(
+		ctx,
+		notificationQuery,
+		n.ID,
+		n.Type,
+		n.Title,
+		n.Body,
+		n.Title,
+		n.HTMLBody,
+		n.Target.Type,
+		string(targetJSON),
+		string(channelsJSON),
+		n.Priority,
+		string(metadataJSON),
+		n.ScheduledAt,
+		n.CreatedAt,
+		n.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert notification: %w", err)
+	}
+
+	// Step 5: Insert all delivery records.
+	const deliveryQuery = `
+        INSERT INTO notification_deliveries (
+            id,
+            notification_id,
+            user_id,
+            channel,
+            status,
+            recipient,
+            provider_id,
+            failure_reason,
+            attempt_count,
+            next_retry_at,
+            sent_at,
+            delivered_at,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11, $12, $13, $14
+        )
+    `
+
+	for _, delivery := range deliveries {
+		_, err := tx.ExecContext(
+			ctx,
+			deliveryQuery,
+			delivery.ID,
+			delivery.NotificationID,
+			delivery.UserID,
+			delivery.Channel,
+			delivery.Status,
+			delivery.Recipient,
+			delivery.ProviderID,
+			delivery.FailureReason,
+			delivery.AttemptCount,
+			delivery.NextRetryAt,
+			delivery.SentAt,
+			delivery.DeliveredAt,
+			delivery.CreatedAt,
+			delivery.UpdatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"insert delivery %s: %w",
+				delivery.ID,
+				err,
+			)
+		}
+	}
+
+	// Step 5b: Add the notification to each recipient's inbox (one row
+	// per user, even if they get both email and push).
+	inboxUserIDs := make([]string, 0, len(deliveries))
+	seenInboxUser := make(map[string]struct{}, len(deliveries))
+
+	for _, delivery := range deliveries {
+		if _, ok := seenInboxUser[delivery.UserID]; ok {
+			continue
+		}
+
+		seenInboxUser[delivery.UserID] = struct{}{}
+		inboxUserIDs = append(inboxUserIDs, delivery.UserID)
+	}
+
+	if _, err := tx.ExecContext(
+		ctx,
+		`
+		INSERT INTO user_notifications (user_id, notification_id, created_at)
+		SELECT user_id, $2, $3
+		FROM unnest($1::text[]) AS user_id
+		ON CONFLICT (user_id, notification_id) DO NOTHING
+		`,
+		inboxUserIDs,
+		n.ID,
+		n.CreatedAt,
+	); err != nil {
+		return fmt.Errorf("insert inbox entries: %w", err)
+	}
+
+	// Step 6: Insert the notification outbox event using the SAME
+	// transaction. The event cannot exist without its notification
+	// and delivery records, and vice versa.
+	if err := insertNotificationOutboxEvent(ctx, tx, event); err != nil {
+		return fmt.Errorf("insert notification outbox event: %w", err)
+	}
+
+	// Step 7: Commit all three operations together.
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit notification creation transaction: %w", err)
+	}
+
+	return nil
 }
 
 var _ domain.NotificationRepository = (*NotificationRepository)(nil)

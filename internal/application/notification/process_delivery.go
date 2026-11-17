@@ -54,25 +54,32 @@ func NewProcessDeliveryUseCase(
 // 7. Classify provider errors.
 // 8. Schedule retries or move exhausted deliveries to DLQ.
 // 9. Update attempt and delivery status.
+//
+// It returns domain.ErrStaleDeliveryTask when the task belongs to an older
+// retry cycle; callers should acknowledge such tasks without retrying.
 func (uc *ProcessDeliveryUseCase) Execute(
 	ctx context.Context,
-	deliveryID string,
+	task DeliveryTask,
 ) error {
 
+	if err := task.Validate(); err != nil {
+		return fmt.Errorf("invalid delivery task: %w", err)
+	}
+
 	// ---------------------------------------------------------
-	// STEP 1: Retrieve the delivery.
+	// STEP 1: Retrieve the delivery and reject stale tasks.
 	// ---------------------------------------------------------
 
 	delivery, err := uc.notificationRepository.GetDeliveryByID(
 		ctx,
-		deliveryID,
+		task.DeliveryID,
 	)
 	if err != nil {
 		return fmt.Errorf("get notification delivery: %w", err)
 	}
 
-	if delivery == nil {
-		return domain.ErrDeliveryNotFound
+	if err := ValidateDeliveryTask(delivery, task); err != nil {
+		return err
 	}
 
 	// ---------------------------------------------------------
@@ -85,10 +92,14 @@ func (uc *ProcessDeliveryUseCase) Execute(
 
 	processingToken := uuid.NewString()
 
+	// The claim only succeeds if the delivery is still in the task's
+	// retry cycle, so a DLQ retry racing with this task cannot let a
+	// stale task process the new cycle.
 	claimed, err := uc.notificationRepository.ClaimDelivery(
 		ctx,
 		delivery.ID,
 		processingToken,
+		task.RetryCycle,
 	)
 	if err != nil {
 		return fmt.Errorf("claim notification delivery: %w", err)
@@ -186,6 +197,7 @@ func (uc *ProcessDeliveryUseCase) Execute(
 		ctx,
 		delivery.ID,
 		processingToken,
+		task.RetryCycle,
 	)
 
 	// ---------------------------------------------------------
@@ -543,6 +555,7 @@ func (uc *ProcessDeliveryUseCase) startDeliveryHeartbeat(
 	ctx context.Context,
 	deliveryID string,
 	processingToken string,
+	retryCycle int,
 ) (context.Context, func() bool) {
 	heartbeatCtx, cancel := context.WithCancel(ctx)
 
@@ -568,6 +581,7 @@ func (uc *ProcessDeliveryUseCase) startDeliveryHeartbeat(
 					heartbeatTimeoutCtx,
 					deliveryID,
 					processingToken,
+					retryCycle,
 				)
 
 				heartbeatCancel()

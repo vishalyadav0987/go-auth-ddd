@@ -10,6 +10,7 @@ type DeliveryRetryEvent struct {
 	DeliveryID     string    `json:"delivery_id"`
 	NotificationID string    `json:"notification_id"`
 	RetryCycle     int       `json:"retry_cycle"`
+	RequestedBy    string    `json:"requested_by"`
 	RequestedAt    time.Time `json:"requested_at"`
 }
 

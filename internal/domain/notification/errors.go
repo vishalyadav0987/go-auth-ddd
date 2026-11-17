@@ -22,4 +22,7 @@ var (
 	ErrDeliveryNotDeadLettered = errors.New(
 		"delivery is not in the dead letter queue",
 	)
+	ErrStaleDeliveryTask = errors.New(
+		"stale notification delivery task",
+	)
 )

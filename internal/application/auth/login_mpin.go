@@ -101,10 +101,10 @@ func (uc *LoginMpinUsecase) Execute(
 	_ = uc.mpinRateLimiter.Reset(ctx, userWithPhone.ID(), req.OTPAccessToken)
 
 	// 8️⃣ Generate final Access Token
-	accessToken, err := uc.token.GenerateToken(
+	accessToken, err := uc.token.GenerateAccessToken(
 		userWithId.ID(),
 		string(userWithId.Mobile()),
-		TokenTypeAccessToken,
+		userWithId.Role(),
 		15*time.Minute,
 	)
 

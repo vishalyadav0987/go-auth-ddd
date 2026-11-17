@@ -15,6 +15,7 @@ type DeliveryTaskPayload struct {
 	NotificationID string `json:"notification_id"`
 	UserID         string `json:"user_id"`
 	Channel        string `json:"channel"`
+	RetryCycle     int    `json:"retry_cycle"`
 }
 
 func MarshalDeliveryPayload(

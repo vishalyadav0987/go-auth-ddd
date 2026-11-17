@@ -10,6 +10,10 @@ type UserRepository interface {
 	FindByClientId(ctx context.Context, clientId string) (*User, error)
 	FindById(ctx context.Context, userId string) (*User, error)
 	UpdateMPIN(ctx context.Context, userId string, mpinHash string) error
+	GetEmailsByUserIDs(
+		ctx context.Context,
+		userIDs []string,
+	) (map[string]string, error)
 	UpdatePassword(ctx context.Context, userID string, hashedPassword string) error
 }
 

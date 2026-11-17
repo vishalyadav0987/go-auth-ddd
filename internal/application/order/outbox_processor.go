@@ -5,24 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+
+	domainorder "github.com/vishalyadav0987/authentication/internal/domain/order"
 )
-
-type OutboxRepository interface {
-	FetchPending(
-		ctx context.Context,
-		limit int,
-	) ([]OutboxEvent, error)
-
-	MarkProcessed(
-		ctx context.Context,
-		eventID string,
-	) error
-
-	MarkFailed(
-		ctx context.Context,
-		eventID string,
-	) error
-}
 
 type EventPublisher interface {
 	Publish(
@@ -32,13 +17,13 @@ type EventPublisher interface {
 }
 
 type OutboxProcessor struct {
-	repository OutboxRepository
+	repository domainorder.OrderOutboxRepository
 	publisher  EventPublisher
 	batchSize  int
 }
 
 func NewOutboxProcessor(
-	repository OutboxRepository,
+	repository domainorder.OrderOutboxRepository,
 	publisher EventPublisher,
 ) *OutboxProcessor {
 	return &OutboxProcessor{
@@ -52,7 +37,7 @@ func (p *OutboxProcessor) ProcessBatch(
 	ctx context.Context,
 ) error {
 
-	events, err := p.repository.FetchPending(ctx, p.batchSize)
+	events, err := p.repository.ClaimPending(ctx, p.batchSize)
 	if err != nil {
 		return fmt.Errorf("fetch outbox events: %w", err)
 	}
@@ -60,6 +45,10 @@ func (p *OutboxProcessor) ProcessBatch(
 	var processingErrors []error
 
 	for _, event := range events {
+		// Use the token issued by ClaimPending; it proves this worker
+		// still owns the event.
+		token := event.ProcessingToken
+
 		if err := p.publisher.Publish(ctx, event); err != nil {
 			log.Printf(
 				"Failed to publish event %s: %v",
@@ -67,7 +56,7 @@ func (p *OutboxProcessor) ProcessBatch(
 				err,
 			)
 
-			if markErr := p.repository.MarkFailed(ctx, event.ID); markErr != nil {
+			if markErr := p.repository.MarkFailed(ctx, event.ID, token); markErr != nil {
 				processingErrors = append(
 					processingErrors,
 					fmt.Errorf("mark event %s failed: %w", event.ID, markErr),
@@ -82,7 +71,7 @@ func (p *OutboxProcessor) ProcessBatch(
 			continue
 		}
 
-		if err := p.repository.MarkProcessed(ctx, event.ID); err != nil {
+		if err := p.repository.MarkProcessed(ctx, event.ID, token); err != nil {
 			processingErrors = append(
 				processingErrors,
 				fmt.Errorf("mark event %s processed: %w", event.ID, err),

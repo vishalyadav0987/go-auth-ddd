@@ -74,10 +74,14 @@ type NotificationRepository interface {
 	// false, nil	Another worker already claimed it, or it isn't eligible
 	// false, err	Database operation failed
 
+	//
+	// expectedRetryCycle makes the claim fail (false, nil) when the
+	// delivery has moved to another retry cycle since the task was queued.
 	ClaimDelivery(
 		ctx context.Context,
 		deliveryID string,
 		processingToken string,
+		expectedRetryCycle int,
 	) (bool, error)
 
 	// 	Before implementing the retry worker, we need to fix a concurrency and consistency issue in our current processing pipeline.
@@ -130,10 +134,13 @@ type NotificationRepository interface {
 	//    Worker A saves the result and completes the delivery.
 	//    Lease released
 
+	// HeartbeatDelivery renews the lease only while the caller still owns
+	// the delivery (token) and it is still in the expected retry cycle.
 	HeartbeatDelivery(
 		ctx context.Context,
 		deliveryID string,
 		processingToken string,
+		expectedRetryCycle int,
 	) (bool, error)
 
 	// 	In Step 99, we added dead_lettered_at. Now we need to ensure that when a delivery exhausts its retry attempts, both fields are updated together:
@@ -163,8 +170,32 @@ type NotificationRepository interface {
 	//
 	// It must preserve the existing delivery attempt history.
 	// It must reject deliveries that are not currently in the DLQ.
+	//
+	// adminID is recorded on the retry outbox event. The returned int is
+	// the previous retry cycle; the delivery carries the new one.
 	PrepareDeadLetterRetry(
 		ctx context.Context,
 		deliveryID string,
-	) (*NotificationDelivery, error)
+		adminID string,
+	) (*NotificationDelivery, int, error)
+
+	// CreateNotificationWithDeliveriesAndOutbox atomically creates a
+	// notification, its delivery records, and its outbox event.
+	//
+	// All three operations must succeed together. If any operation fails,
+	// the repository must roll back the entire transaction.
+
+	CreateNotificationWithDeliveriesAndOutbox(
+		ctx context.Context,
+		notification *Notification,
+		deliveries []*NotificationDelivery,
+		event *NotificationOutboxEvent,
+	) error
+
+	// GetPendingDeliveriesByNotificationID returns the notification's
+	// deliveries that are still PENDING.
+	GetPendingDeliveriesByNotificationID(
+		ctx context.Context,
+		notificationID string,
+	) ([]*NotificationDelivery, error)
 }

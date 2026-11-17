@@ -1,4 +1,4 @@
-package orderQueue
+package queue
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"github.com/hibiken/asynq"
 )
 
+// NewWorkerServer creates the shared Asynq server. Its queues match
+// NotificationPriority.QueueName() and the order event queue ("critical").
 func NewWorkerServer(redisAddr string) *asynq.Server {
 	return asynq.NewServer(
 		asynq.RedisClientOpt{
