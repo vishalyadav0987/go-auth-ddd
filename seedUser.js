@@ -1,9 +1,16 @@
 // save as seedUsers.js
+const fs = require('fs');
 
 const URL = "http://localhost:8069/api/v1/auth/register";
 const PASSWORD = "Vishal@123";
 
+const baseEmail = "viahalyadav0987";
+const domain = "@gmail.com";
+const TOTAL_USERS = 1000;
+
 const usedMobiles = new Set();
+// Added mobile and password to CSV for better database tracking
+let csvContent = "id,email,mobile,password\n";
 
 function randomMobile() {
     while (true) {
@@ -20,7 +27,8 @@ function sleep(ms) {
 }
 
 async function registerOne(i) {
-    const email = `user${String(i).padStart(3, "0")}@mailinator.com`;
+    // Generate the Gmail alias instead of mailinator
+    const email = `${baseEmail}+test${i}${domain}`;
     const mobile = randomMobile();
 
     const payload = { email, mobile, password: PASSWORD };
@@ -43,6 +51,8 @@ async function registerOne(i) {
 
         if (res.ok) {
             console.log(`✅ ${i} SUCCESS -> ${email} | ${mobile}`);
+            // Record the successful registration for the CSV
+            csvContent += `${i},${email},${mobile},${PASSWORD}\n`;
         } else {
             console.log(`❌ ${i} FAILED -> ${email} | ${res.status} |`, data);
         }
@@ -52,12 +62,16 @@ async function registerOne(i) {
 }
 
 async function registerUsers() {
-    for (let i = 1; i <= 100; i++) {
+    console.log(`🚀 Starting registration for ${TOTAL_USERS} users...`);
+
+    for (let i = 1; i <= TOTAL_USERS; i++) {
         await registerOne(i);
-        await sleep(100); // increase if rate limit
+        await sleep(100); // 100ms delay to prevent rate-limiting the local API
     }
 
-    console.log("🎉 Done creating 100 users");
+    // Write the CSV file after all API calls finish
+    fs.writeFileSync('test_users.csv', csvContent);
+    console.log(`🎉 Done! Successfully generated test_users.csv with registered users`);
 }
 
 registerUsers();

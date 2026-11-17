@@ -2,6 +2,7 @@ package brevo
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -11,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vishalyadav0987/authentication/internal/domain/notification"
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
 )
 
@@ -54,8 +54,9 @@ func (s *SMTPEmailProvider) Send(
 	}
 
 	if strings.ContainsAny(to, "\r\n") ||
-		strings.ContainsAny(subject, "\r\n") {
-		return fmt.Errorf("invalid email recipient or subject")
+		strings.ContainsAny(subject, "\r\n") ||
+		strings.ContainsAny(s.from, "\r\n") {
+		return fmt.Errorf("invalid email header")
 	}
 
 	address := net.JoinHostPort(s.host, s.port)
@@ -82,6 +83,43 @@ func (s *SMTPEmailProvider) Send(
 	}
 	defer client.Close()
 
+	// Step 1: Check whether the server supports STARTTLS.
+	ok, _ := client.Extension("STARTTLS")
+
+	if !ok {
+		return domain.NewProviderError(
+			domain.ProviderErrorPermanent,
+			"SMTP_STARTTLS_UNAVAILABLE",
+			"SMTP server does not support STARTTLS",
+			nil,
+		)
+	}
+
+	if !ok {
+		return domain.NewProviderError(
+			domain.ProviderErrorPermanent,
+			"SMTP_STARTTLS_UNAVAILABLE",
+			"SMTP server does not support STARTTLS",
+			nil,
+		)
+	}
+
+	// Step 2: Upgrade the connection to TLS BEFORE authentication.
+	tlsConfig := &tls.Config{
+		ServerName: s.host,
+		MinVersion: tls.VersionTLS12,
+	}
+
+	if err := client.StartTLS(tlsConfig); err != nil {
+		return domain.NewProviderError(
+			domain.ProviderErrorTransient,
+			"SMTP_TLS_FAILED",
+			"failed to establish SMTP TLS connection",
+			err,
+		)
+	}
+
+	// Step 3: Authenticate only after TLS is established.
 	auth := smtp.PlainAuth(
 		"",
 		s.username,
@@ -93,14 +131,17 @@ func (s *SMTPEmailProvider) Send(
 		return classifySMTPError("AUTH", err)
 	}
 
+	// Step 4: Set sender.
 	if err := client.Mail(s.from); err != nil {
 		return classifySMTPError("MAIL FROM", err)
 	}
 
+	// Step 5: Set recipient.
 	if err := client.Rcpt(to); err != nil {
 		return classifySMTPError("RCPT TO", err)
 	}
 
+	// Step 6: Start message transmission.
 	writer, err := client.Data()
 	if err != nil {
 		return classifySMTPError("DATA", err)
@@ -122,16 +163,18 @@ func (s *SMTPEmailProvider) Send(
 
 	if _, err := writer.Write([]byte(message)); err != nil {
 		_ = writer.Close()
-		return classifySMTPError("write email message", err)
+		return classifySMTPError("WRITE MESSAGE", err)
 	}
 
+	// Step 7: Close DATA writer.
+	// A successful Close means the SMTP server accepted the message.
 	if err := writer.Close(); err != nil {
-		return classifySMTPError("finish SMTP message", err)
+		return classifySMTPError("FINISH MESSAGE", err)
 	}
 
-	if err := client.Quit(); err != nil {
-		return classifySMTPError("close SMTP session", err)
-	}
+	// Do not report failure just because QUIT fails.
+	// The server has already accepted the message after successful DATA Close.
+	_ = client.Quit()
 
 	return nil
 }
@@ -185,4 +228,4 @@ func classifySMTPError(
 	)
 }
 
-var _ notification.EmailProvider = (*SMTPEmailProvider)(nil)
+var _ domain.EmailProvider = (*SMTPEmailProvider)(nil)

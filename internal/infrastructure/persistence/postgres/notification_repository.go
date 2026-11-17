@@ -446,14 +446,14 @@ func (r *NotificationRepository) UpdateDeliveryStatus(
 	result, err := r.db.ExecContext(
 		ctx,
 		`
-        UPDATE notification_deliveries
-SET status = $3,
+UPDATE notification_deliveries
+SET status = $3::TEXT,
     sent_at = CASE
-        WHEN $3 = 'ACCEPTED' THEN NOW()
+        WHEN $3::TEXT = 'ACCEPTED' THEN NOW()
         ELSE sent_at
     END,
     delivered_at = CASE
-        WHEN $3 = 'DELIVERED' THEN NOW()
+        WHEN $3::TEXT = 'DELIVERED' THEN NOW()
         ELSE delivered_at
     END,
     processing_token = NULL,
@@ -461,7 +461,8 @@ SET status = $3,
     updated_at = NOW()
 WHERE id = $1
   AND status = 'PROCESSING'
-  AND processing_token = $2
+  AND processing_token = $2;
+
         `,
 		deliveryID,
 		processingToken,
@@ -1002,6 +1003,7 @@ func (r *NotificationRepository) CreateDeliveryAttempt(
 			status,
 			provider_id,
 			error_message,
+			attempted_at
 		)
 		VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8
@@ -1018,6 +1020,7 @@ func (r *NotificationRepository) CreateDeliveryAttempt(
 		attempt.Status,
 		attempt.ProviderID,
 		attempt.ErrorMessage,
+		attempt.AttemptedAt,
 	)
 
 	if err != nil {

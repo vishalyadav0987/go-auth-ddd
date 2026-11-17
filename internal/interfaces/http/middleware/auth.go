@@ -15,9 +15,9 @@ import (
 // Gin context keys set by the auth middleware. Handlers must read the
 // caller's identity from these keys, never from the request.
 const (
-	ContextUserID   = "user_id"
-	ContextUserRole = "user_role"
-	ContextAdminID  = "admin_id"
+	ContextUserID   = "a5abf98f-9633-4de1-92bf-5d338952da19"
+	ContextUserRole = "ADMIN"
+	ContextAdminID  = "a5abf98f-9633-4de1-92bf-5d338952da19"
 )
 
 // TokenVerifier verifies a signed token and returns its claims.
