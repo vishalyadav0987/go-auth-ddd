@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // ErrInvalidSendRequest wraps notification validation failures so callers
@@ -109,7 +110,21 @@ func (uc *SendNotificationUseCase) Execute(
 	}
 	n.UpdatedAt = now
 
+	start := time.Now()
+
+	ctx = notiflog.With(ctx, notiflog.KeyNotificationID, n.ID)
+	lg := notiflog.From(ctx).With(
+		"notification_type", n.Type,
+		"priority", n.Priority,
+		"target_type", n.Target.Type,
+		"target_user_count", len(n.Target.UserIDs),
+		"channels", n.Channels,
+	)
+
+	lg.Info("send.started", "scheduled_at", n.ScheduledAt)
+
 	if err := n.Validate(); err != nil {
+		lg.Warn("send.validation_failed", notiflog.Err(err))
 		return nil, fmt.Errorf("%w: %v", ErrInvalidSendRequest, err)
 	}
 
@@ -135,16 +150,24 @@ func (uc *SendNotificationUseCase) Execute(
 	for _, channel := range n.Channels {
 		userIDs, err := uc.recipientResolver.Execute(ctx, n.Target, n.Type, channel)
 		if errors.Is(err, domain.ErrNoRecipients) {
+			lg.Info("send.channel_skipped",
+				notiflog.KeyChannel, channel,
+				"reason", "no eligible users (preferences / no email / no active device)",
+			)
 			continue
 		}
 		if err != nil {
+			lg.Error("send.recipient_resolution_failed", notiflog.KeyChannel, channel, notiflog.Err(err))
 			return nil, fmt.Errorf("resolve %s recipients: %w", channel, err)
 		}
+
+		before := len(deliveries)
 
 		switch channel {
 		case domain.ChannelEmail:
 			emails, err := uc.emails.GetEmailsByUserIDs(ctx, userIDs)
 			if err != nil {
+				lg.Error("send.email_lookup_failed", notiflog.Err(err))
 				return nil, fmt.Errorf("look up recipient emails: %w", err)
 			}
 
@@ -158,6 +181,7 @@ func (uc *SendNotificationUseCase) Execute(
 		case domain.ChannelPush:
 			tokens, err := uc.pushTokens.GetActiveTokensByUserIDs(ctx, userIDs)
 			if err != nil {
+				lg.Error("send.device_lookup_failed", notiflog.Err(err))
 				return nil, fmt.Errorf("look up recipient devices: %w", err)
 			}
 
@@ -171,9 +195,16 @@ func (uc *SendNotificationUseCase) Execute(
 		default:
 			return nil, fmt.Errorf("%w: unsupported channel %s", ErrInvalidSendRequest, channel)
 		}
+
+		lg.Info("send.channel_resolved",
+			notiflog.KeyChannel, channel,
+			"eligible_users", len(userIDs),
+			"deliveries", len(deliveries)-before,
+		)
 	}
 
 	if len(deliveries) == 0 {
+		lg.Warn("send.no_recipients", notiflog.Since(start))
 		return nil, domain.ErrNoRecipients
 	}
 
@@ -203,7 +234,27 @@ func (uc *SendNotificationUseCase) Execute(
 	if err := uc.notificationRepository.CreateNotificationWithDeliveriesAndOutbox(
 		ctx, n, deliveries, event,
 	); err != nil {
+		lg.Error("send.store_failed", notiflog.Err(err))
 		return nil, fmt.Errorf("store notification: %w", err)
+	}
+
+	lg.Info("send.stored",
+		"recipients", result.RecipientCount,
+		"email_deliveries", result.EmailDeliveries,
+		"push_deliveries", result.PushDeliveries,
+		notiflog.KeyOutboxEventID, event.ID,
+		"publish_at", event.NextRetryAt,
+		notiflog.Since(start),
+	)
+
+	// Per-delivery IDs at debug level, to trace any single delivery.
+	for _, d := range deliveries {
+		lg.Debug("send.delivery_created",
+			notiflog.KeyDeliveryID, d.ID,
+			notiflog.KeyUserID, d.UserID,
+			notiflog.KeyChannel, d.Channel,
+			notiflog.KeyRecipient, notiflog.MaskRecipient(string(d.Channel), d.Recipient),
+		)
 	}
 
 	return result, nil

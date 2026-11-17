@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // UserDeviceUseCase registers and removes the authenticated user's push
@@ -33,13 +34,23 @@ func (uc *UserDeviceUseCase) Register(
 		Platform: platform,
 	}
 
+	lg := notiflog.From(ctx).With(
+		notiflog.KeyUserID, userID,
+		"platform", platform,
+		"fcm_token", notiflog.MaskToken(fcmToken),
+	)
+
 	if err := device.Validate(); err != nil {
+		lg.Warn("device.register_rejected", notiflog.Err(err))
 		return nil, err
 	}
 
 	if err := uc.devices.RegisterDevice(ctx, device); err != nil {
+		lg.Error("device.register_failed", notiflog.Err(err))
 		return nil, err
 	}
+
+	lg.Info("device.registered", "device_id", device.ID)
 
 	return device, nil
 }
@@ -59,5 +70,14 @@ func (uc *UserDeviceUseCase) Remove(
 		return domain.ErrDeviceNotFound
 	}
 
-	return uc.devices.DeactivateUserDevice(ctx, userID, deviceID)
+	lg := notiflog.From(ctx).With(notiflog.KeyUserID, userID, "device_id", deviceID)
+
+	if err := uc.devices.DeactivateUserDevice(ctx, userID, deviceID); err != nil {
+		lg.Warn("device.remove_failed", notiflog.Err(err))
+		return err
+	}
+
+	lg.Info("device.removed")
+
+	return nil
 }

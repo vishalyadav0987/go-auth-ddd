@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // RetryDeadLetterDeliveryInput contains the administrator's retry request.
@@ -81,13 +82,27 @@ func (uc *RetryDeadLetterDeliveryUseCase) Execute(
 		input.DeliveryID,
 		input.AdminID,
 	)
+	lg := notiflog.From(ctx).With(
+		notiflog.KeyDeliveryID, input.DeliveryID,
+		notiflog.KeyAdminID, input.AdminID,
+	)
+
 	if err != nil {
+		lg.Warn("dlq_retry.request_rejected", notiflog.Err(err))
 		return nil, fmt.Errorf("failed to prepare delivery retry: %w", err)
 	}
 
 	if retriedDelivery == nil {
+		lg.Warn("dlq_retry.request_rejected", "reason", "not dead-lettered")
 		return nil, domain.ErrDeliveryNotDeadLettered
 	}
+
+	lg.Info("dlq_retry.requested",
+		notiflog.KeyNotificationID, retriedDelivery.NotificationID,
+		"previous_retry_cycle", previousCycle,
+		notiflog.KeyRetryCycle, retriedDelivery.RetryCycle,
+		"lifetime_attempts", retriedDelivery.AttemptCount,
+	)
 
 	// Step 4: Build the response.
 	return &RetryDeadLetterDeliveryOutput{

@@ -13,6 +13,7 @@ import (
 	"fmt"
 
 	"github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // DeliveryTaskPublisher publishes a delivery task to the appropriate
@@ -92,11 +93,26 @@ func (uc *ProcessDeliveryRetryEventUseCase) Execute(
 	//
 	// The status check also prevents publishing a delivery that has
 	// already been cancelled, accepted, or otherwise moved forward.
+	lg := notiflog.From(ctx).With(
+		notiflog.KeyDeliveryID, delivery.ID,
+		notiflog.KeyNotificationID, delivery.NotificationID,
+		notiflog.KeyRetryCycle, event.RetryCycle,
+		"requested_by", event.RequestedBy,
+	)
+
 	if delivery.Status != notification.DeliveryPending {
+		lg.Info("dlq_retry.event_obsolete",
+			"reason", "delivery is no longer PENDING",
+			notiflog.KeyStatus, delivery.Status,
+		)
 		return nil
 	}
 
 	if delivery.RetryCycle != event.RetryCycle {
+		lg.Info("dlq_retry.event_obsolete",
+			"reason", "delivery moved to a newer retry cycle",
+			"current_retry_cycle", delivery.RetryCycle,
+		)
 		return nil
 	}
 
@@ -127,8 +143,11 @@ func (uc *ProcessDeliveryRetryEventUseCase) Execute(
 		delivery,
 		originalNotification.Priority,
 	); err != nil {
+		lg.Error("dlq_retry.publish_failed", notiflog.Err(err))
 		return fmt.Errorf("publish retry delivery task: %w", err)
 	}
+
+	lg.Info("dlq_retry.published")
 
 	return nil
 }

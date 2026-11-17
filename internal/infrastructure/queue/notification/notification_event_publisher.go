@@ -9,6 +9,7 @@ import (
 	"github.com/hibiken/asynq"
 
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 type Publisher struct {
@@ -74,17 +75,30 @@ func (p *Publisher) PublishDelivery(
 		asynq.Timeout(30*time.Second),
 	)
 
+	lg := notiflog.From(ctx).With(
+		notiflog.KeyDeliveryID, delivery.ID,
+		notiflog.KeyNotificationID, delivery.NotificationID,
+		notiflog.KeyRetryCycle, delivery.RetryCycle,
+		notiflog.KeyChannel, delivery.Channel,
+		notiflog.KeyTaskID, taskID,
+		notiflog.KeyQueue, queue,
+	)
+
 	_, err = p.client.EnqueueContext(ctx, task)
 	if err != nil {
 		// The same delivery + retry cycle is already queued (e.g. the
 		// outbox event was re-processed after a crash). The task ID is
 		// deterministic, so this is a successful duplicate, not a failure.
 		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			lg.Info("queue.duplicate_task_skipped")
 			return nil
 		}
 
+		lg.Error("queue.enqueue_failed", notiflog.Err(err))
 		return fmt.Errorf("enqueue notification delivery: %w", err)
 	}
+
+	lg.Info("queue.task_enqueued")
 
 	return nil
 }

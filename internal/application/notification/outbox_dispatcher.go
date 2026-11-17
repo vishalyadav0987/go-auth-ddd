@@ -13,6 +13,7 @@ import (
 	"fmt"
 
 	"github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // OutboxEventHandler handles one type of notification outbox event.
@@ -78,6 +79,8 @@ func (d *OutboxEventDispatcher) Register(
 
 	d.handlers[eventType] = handler
 
+	notiflog.L().Info("outbox.handler_registered", notiflog.KeyEventType, eventType)
+
 	return nil
 }
 
@@ -105,6 +108,7 @@ func (d *OutboxEventDispatcher) Dispatch(
 
 	handler, exists := d.handlers[event.EventType]
 	if !exists {
+		notiflog.From(ctx).Error("outbox.no_handler_registered")
 		return fmt.Errorf(
 			"no handler registered for outbox event type %s",
 			event.EventType,

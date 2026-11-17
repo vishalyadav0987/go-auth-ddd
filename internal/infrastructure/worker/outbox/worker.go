@@ -3,10 +3,10 @@ package outbox
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // NotificationOutboxClaimer claims due events from the notification outbox
@@ -77,8 +77,13 @@ func NewWorker(
 // is empty or the database is failing.
 func (w *Worker) Run(ctx context.Context) error {
 
-	log.Println("Notification outbox worker started")
-	defer log.Println("Notification outbox worker stopped")
+	lg := notiflog.L().With("component", "outbox_worker")
+
+	lg.Info("outbox.worker_started",
+		"batch_size", w.batchSize,
+		"poll_interval", w.pollInterval.String(),
+	)
+	defer lg.Info("outbox.worker_stopped")
 
 	for {
 		// Stop before starting another database operation on shutdown.
@@ -94,7 +99,10 @@ func (w *Worker) Run(ctx context.Context) error {
 				return nil
 			}
 
-			log.Printf("Failed to claim notification outbox events: %v", err)
+			lg.Error("outbox.claim_failed",
+				"retry_in", w.pollInterval.String(),
+				notiflog.Err(err),
+			)
 
 			// Avoid hammering PostgreSQL while it is unavailable.
 			if !wait(ctx, w.pollInterval) {
@@ -113,7 +121,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			continue
 		}
 
-		log.Printf("Claimed %d notification outbox events", len(events))
+		lg.Info("outbox.events_claimed", "count", len(events))
 
 		// Process sequentially for now; controlled concurrency can be
 		// added once the full flow is validated.
@@ -133,23 +141,16 @@ func (w *Worker) Run(ctx context.Context) error {
 					return nil
 				}
 
-				// The processor already recorded the failure
-				// (MarkFailed / MarkDead) where appropriate.
-				log.Printf(
-					"Failed to process notification outbox event ID=%s Type=%s: %v",
-					event.ID,
-					event.EventType,
-					err,
+				// The processor already logged the details and recorded
+				// the failure (retry scheduled / dead / lease lost).
+				lg.Debug("outbox.event_failed",
+					notiflog.KeyOutboxEventID, event.ID,
+					notiflog.KeyEventType, event.EventType,
 				)
 
 				continue
 			}
 
-			log.Printf(
-				"Processed notification outbox event ID=%s Type=%s",
-				event.ID,
-				event.EventType,
-			)
 		}
 
 		// A batch was processed; poll again immediately.

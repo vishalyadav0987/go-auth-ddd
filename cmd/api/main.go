@@ -36,12 +36,20 @@ import (
 	httpApp "github.com/vishalyadav0987/authentication/internal/interfaces/http"
 	"github.com/vishalyadav0987/authentication/internal/interfaces/http/handler"
 	"github.com/vishalyadav0987/authentication/internal/interfaces/http/middleware"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
 	// 0. load env data
 	cfg := config.MustLoad()
+
+	// Notification-flow structured logging (see pkg/notiflog).
+	closeNotificationLog, err := notiflog.Init()
+	if err != nil {
+		log.Fatalf("notification logger: %v", err)
+	}
+	defer closeNotificationLog()
 
 	// 0.5 PostgreSQL db connection
 	db, err := postgres.NewConnection(config.LoadPostgresConfig())

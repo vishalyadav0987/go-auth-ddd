@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // PreferenceView is the effective preference for one notification type.
@@ -119,8 +120,19 @@ func (uc *UserPreferencesUseCase) Update(
 		toSave = append(toSave, p)
 	}
 
+	lg := notiflog.From(ctx).With(notiflog.KeyUserID, userID)
+
 	if err := uc.preferences.SavePreferences(ctx, toSave); err != nil {
+		lg.Error("preferences.update_failed", notiflog.Err(err))
 		return nil, err
+	}
+
+	for _, p := range toSave {
+		lg.Info("preferences.updated",
+			"notification_type", p.Type,
+			"email_enabled", p.EmailEnabled,
+			"push_enabled", p.PushEnabled,
+		)
 	}
 
 	return uc.Get(ctx, userID)

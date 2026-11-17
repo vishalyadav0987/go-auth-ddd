@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 const maxDeliveryAttempts = 5
@@ -62,9 +63,22 @@ func (uc *ProcessDeliveryUseCase) Execute(
 	task DeliveryTask,
 ) error {
 
+	start := time.Now()
+
+	// Every log record below (and in the heartbeat) carries these IDs.
+	ctx = notiflog.With(ctx,
+		notiflog.KeyDeliveryID, task.DeliveryID,
+		notiflog.KeyNotificationID, task.NotificationID,
+		notiflog.KeyRetryCycle, task.RetryCycle,
+	)
+	lg := notiflog.From(ctx)
+
 	if err := task.Validate(); err != nil {
+		lg.Error("delivery.task_invalid", notiflog.Err(err))
 		return fmt.Errorf("invalid delivery task: %w", err)
 	}
+
+	lg.Info("delivery.processing_started")
 
 	// ---------------------------------------------------------
 	// STEP 1: Retrieve the delivery and reject stale tasks.
@@ -75,10 +89,32 @@ func (uc *ProcessDeliveryUseCase) Execute(
 		task.DeliveryID,
 	)
 	if err != nil {
+		lg.Error("delivery.load_failed", notiflog.Err(err))
 		return fmt.Errorf("get notification delivery: %w", err)
 	}
 
+	lg = lg.With(
+		notiflog.KeyChannel, delivery.Channel,
+		notiflog.KeyUserID, delivery.UserID,
+		notiflog.KeyRecipient, notiflog.MaskRecipient(string(delivery.Channel), delivery.Recipient),
+	)
+
+	lg.Debug("delivery.loaded",
+		notiflog.KeyStatus, delivery.Status,
+		"attempt_count", delivery.AttemptCount,
+		"db_retry_cycle", delivery.RetryCycle,
+		notiflog.KeyNextRetryAt, delivery.NextRetryAt,
+	)
+
 	if err := ValidateDeliveryTask(delivery, task); err != nil {
+		if errors.Is(err, domain.ErrStaleDeliveryTask) {
+			lg.Warn("delivery.stale_task_ignored",
+				"current_retry_cycle", delivery.RetryCycle,
+				notiflog.KeyStatus, delivery.Status,
+			)
+		} else {
+			lg.Error("delivery.task_mismatch", notiflog.Err(err))
+		}
 		return err
 	}
 
@@ -102,14 +138,22 @@ func (uc *ProcessDeliveryUseCase) Execute(
 		task.RetryCycle,
 	)
 	if err != nil {
+		lg.Error("delivery.claim_failed", notiflog.Err(err))
 		return fmt.Errorf("claim notification delivery: %w", err)
 	}
 
 	if !claimed {
 		// Another worker owns the delivery, or the delivery
 		// is not currently eligible for processing.
+		lg.Info("delivery.claim_skipped",
+			"reason", "owned by another worker, not due yet, wrong retry cycle, or already finished",
+			notiflog.KeyStatus, delivery.Status,
+			notiflog.KeyNextRetryAt, delivery.NextRetryAt,
+		)
 		return nil
 	}
+
+	lg.Info("delivery.claimed")
 
 	// ---------------------------------------------------------
 	// STEP 3: Retrieve the parent notification.
@@ -120,12 +164,19 @@ func (uc *ProcessDeliveryUseCase) Execute(
 		delivery.NotificationID,
 	)
 	if err != nil {
+		lg.Error("delivery.notification_load_failed", notiflog.Err(err))
 		return fmt.Errorf("get notification: %w", err)
 	}
 
 	if notification == nil {
+		lg.Error("delivery.notification_missing")
 		return domain.ErrNotificationNotFound
 	}
+
+	lg = lg.With(
+		"notification_type", notification.Type,
+		"priority", notification.Priority,
+	)
 
 	// ---------------------------------------------------------
 	// STEP 4: Create a transactional delivery attempt.
@@ -162,26 +213,44 @@ func (uc *ProcessDeliveryUseCase) Execute(
 
 		if errors.Is(err, domain.ErrMaxRetriesExceeded) {
 
+			lg.Warn("delivery.attempts_exhausted_before_send",
+				"max_attempts", maxDeliveryAttempts,
+			)
+
 			if updateErr := uc.notificationRepository.MarkDeliveryDeadLettered(
 				ctx,
 				delivery.ID,
 				processingToken,
 				"Maximum delivery attempts exceeded",
 			); updateErr != nil {
+				lg.Error("delivery.dead_letter_failed", notiflog.Err(updateErr))
 				return fmt.Errorf(
 					"mark exhausted delivery as dead-lettered: %w",
 					updateErr,
 				)
 			}
 
+			lg.Error("delivery.dead_lettered",
+				"reason", "maximum delivery attempts exceeded",
+				notiflog.Since(start),
+			)
+
 			return nil
 		}
+
+		lg.Error("delivery.attempt_create_failed", notiflog.Err(err))
 
 		return fmt.Errorf(
 			"create transactional delivery attempt: %w",
 			err,
 		)
 	}
+
+	lg = lg.With(notiflog.KeyAttempt, attemptNumber)
+
+	lg.Info("delivery.attempt_started",
+		"max_attempts", maxDeliveryAttempts,
+	)
 
 	// ---------------------------------------------------------
 	// STEP 5: Start delivery heartbeat.
@@ -208,6 +277,9 @@ func (uc *ProcessDeliveryUseCase) Execute(
 
 	var providerID string
 	var sendErr error
+
+	sendStart := time.Now()
+	lg.Debug("provider.send_started")
 
 	switch delivery.Channel {
 
@@ -266,9 +338,25 @@ func (uc *ProcessDeliveryUseCase) Execute(
 	// history or status.
 	// ---------------------------------------------------------
 
+	if sendErr == nil {
+		lg.Info("provider.send_succeeded",
+			notiflog.Since(sendStart),
+			"provider_message_id", providerID,
+		)
+	} else {
+		lg.Warn("provider.send_failed",
+			notiflog.Since(sendStart),
+			notiflog.Err(sendErr),
+		)
+	}
+
 	ownershipLost := stopHeartbeat()
 
 	if ownershipLost {
+		lg.Error("delivery.ownership_lost",
+			"note", "lease lost during send; result not recorded, another worker may retry",
+			"send_succeeded", sendErr == nil,
+		)
 		return fmt.Errorf(
 			"delivery processing ownership lost: %s",
 			delivery.ID,
@@ -286,6 +374,8 @@ func (uc *ProcessDeliveryUseCase) Execute(
 
 		decision := ClassifyProviderError(sendErr)
 
+		lg.Info("provider.error_classified", "decision", decision)
+
 		// The provider attempt has ended with an error.
 		// Preserve the error in the attempt history.
 		if err := uc.attemptRepository.UpdateAttempt(
@@ -297,6 +387,7 @@ func (uc *ProcessDeliveryUseCase) Execute(
 			sendErr.Error(),
 			processingToken,
 		); err != nil {
+			lg.Error("delivery.attempt_update_failed", notiflog.Err(err))
 			return fmt.Errorf(
 				"provider failed: %v; update failed attempt: %w",
 				sendErr,
@@ -329,12 +420,20 @@ func (uc *ProcessDeliveryUseCase) Execute(
 					processingToken,
 					sendErr.Error(),
 				); err != nil {
+					lg.Error("delivery.dead_letter_failed", notiflog.Err(err))
 					return fmt.Errorf(
 						"provider failed: %v; dead-letter delivery: %w",
 						sendErr,
 						err,
 					)
 				}
+
+				lg.Error("delivery.dead_lettered",
+					"reason", "transient failures exhausted all attempts",
+					"max_attempts", maxDeliveryAttempts,
+					notiflog.Err(sendErr),
+					notiflog.Since(start),
+				)
 
 				return nil
 			}
@@ -358,12 +457,21 @@ func (uc *ProcessDeliveryUseCase) Execute(
 				nextRetryAt,
 				sendErr.Error(),
 			); err != nil {
+				lg.Error("delivery.retry_schedule_failed", notiflog.Err(err))
 				return fmt.Errorf(
 					"provider failed: %v; schedule retry: %w",
 					sendErr,
 					err,
 				)
 			}
+
+			lg.Warn("delivery.retry_scheduled",
+				notiflog.KeyRetryIn, retryDelay.String(),
+				notiflog.KeyNextRetryAt, time.Unix(nextRetryAt, 0).UTC(),
+				"attempts_left", maxDeliveryAttempts-attemptNumber,
+				notiflog.Err(sendErr),
+				notiflog.Since(start),
+			)
 
 			return nil
 
@@ -399,23 +507,37 @@ func (uc *ProcessDeliveryUseCase) Execute(
 					ctx,
 					delivery.Recipient,
 				); err != nil {
+					lg.Error("device.deactivate_failed", notiflog.Err(err))
 					return fmt.Errorf(
 						"deactivate unregistered FCM device: %w",
 						err,
 					)
 				}
+
+				lg.Info("device.deactivated_unregistered_token")
 			}
 
 			// Permanent failures are FAILED, but they are
 			// not automatically dead-lettered.
-			return uc.notificationRepository.UpdateDeliveryRetry(
+			if err := uc.notificationRepository.UpdateDeliveryRetry(
 				ctx,
 				delivery.ID,
 				processingToken,
 				domain.DeliveryFailed,
 				0,
 				sendErr.Error(),
+			); err != nil {
+				lg.Error("delivery.status_update_failed", notiflog.Err(err))
+				return err
+			}
+
+			lg.Error("delivery.failed_permanently",
+				"note", "not retried and not dead-lettered",
+				notiflog.Err(sendErr),
+				notiflog.Since(start),
 			)
+
+			return nil
 
 		// -------------------------------------------------
 		// STEP 8C: Ambiguous provider outcome.
@@ -430,14 +552,27 @@ func (uc *ProcessDeliveryUseCase) Execute(
 
 		case FailureAmbiguous:
 
-			return uc.notificationRepository.UpdateDeliveryStatus(
+			if err := uc.notificationRepository.UpdateDeliveryStatus(
 				ctx,
 				delivery.ID,
 				processingToken,
 				domain.DeliveryUnknown,
+			); err != nil {
+				lg.Error("delivery.status_update_failed", notiflog.Err(err))
+				return err
+			}
+
+			lg.Warn("delivery.outcome_unknown",
+				"note", "provider may have accepted the message; not retried to avoid duplicates",
+				notiflog.Err(sendErr),
+				notiflog.Since(start),
 			)
 
+			return nil
+
 		default:
+
+			lg.Error("delivery.unsupported_decision", "decision", decision)
 
 			return fmt.Errorf(
 				"unsupported provider failure decision: %s",
@@ -462,6 +597,7 @@ func (uc *ProcessDeliveryUseCase) Execute(
 		"",
 		processingToken,
 	); err != nil {
+		lg.Error("delivery.attempt_update_failed", notiflog.Err(err))
 		return fmt.Errorf(
 			"update successful delivery attempt: %w",
 			err,
@@ -483,6 +619,7 @@ func (uc *ProcessDeliveryUseCase) Execute(
 			processingToken,
 			providerID,
 		); err != nil {
+			lg.Error("delivery.provider_id_save_failed", notiflog.Err(err))
 			return fmt.Errorf(
 				"save provider message ID: %w",
 				err,
@@ -504,11 +641,17 @@ func (uc *ProcessDeliveryUseCase) Execute(
 		processingToken,
 		domain.DeliveryAccepted,
 	); err != nil {
+		lg.Error("delivery.status_update_failed", notiflog.Err(err))
 		return fmt.Errorf(
 			"mark delivery accepted: %w",
 			err,
 		)
 	}
+
+	lg.Info("delivery.accepted",
+		"provider_message_id", providerID,
+		notiflog.Since(start),
+	)
 
 	return nil
 }
@@ -586,11 +729,21 @@ func (uc *ProcessDeliveryUseCase) startDeliveryHeartbeat(
 
 				heartbeatCancel()
 
-				if err != nil || !owned {
+				if err != nil {
+					notiflog.From(ctx).Error("delivery.heartbeat_failed", notiflog.Err(err))
 					ownershipLost = true
 					cancel()
 					return
 				}
+
+				if !owned {
+					notiflog.From(ctx).Warn("delivery.heartbeat_ownership_lost")
+					ownershipLost = true
+					cancel()
+					return
+				}
+
+				notiflog.From(ctx).Debug("delivery.heartbeat_renewed")
 			}
 		}
 	}()

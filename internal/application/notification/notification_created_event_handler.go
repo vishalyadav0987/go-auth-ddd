@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // NotificationCreatedEventHandler handles NOTIFICATION_CREATED outbox
@@ -68,6 +69,14 @@ func (h *NotificationCreatedEventHandler) Handle(
 		return fmt.Errorf("load deliveries of %s: %w", payload.NotificationID, err)
 	}
 
+	ctx = notiflog.With(ctx, notiflog.KeyNotificationID, payload.NotificationID)
+	lg := notiflog.From(ctx)
+
+	lg.Info("notification_created.publishing",
+		"pending_deliveries", len(deliveries),
+		"priority", n.Priority,
+	)
+
 	// Publish every delivery even if some fail; the outbox retries the
 	// whole event and already-queued tasks are deduplicated.
 	var publishErrs []error
@@ -82,5 +91,16 @@ func (h *NotificationCreatedEventHandler) Handle(
 		}
 	}
 
-	return errors.Join(publishErrs...)
+	if len(publishErrs) > 0 {
+		lg.Error("notification_created.publish_incomplete",
+			"failed", len(publishErrs),
+			"published", len(deliveries)-len(publishErrs),
+			notiflog.Err(errors.Join(publishErrs...)),
+		)
+		return errors.Join(publishErrs...)
+	}
+
+	lg.Info("notification_created.published", "published", len(deliveries))
+
+	return nil
 }

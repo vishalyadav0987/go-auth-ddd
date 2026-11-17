@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 // OutboxHeartbeatRepository renews an outbox event's processing lease.
@@ -90,6 +92,8 @@ func (h *OutboxHeartbeat) Start(
 				)
 
 				if err != nil {
+					notiflog.From(ctx).Error("outbox.heartbeat_failed", notiflog.Err(err))
+
 					mu.Lock()
 					heartbeatErr = err
 					mu.Unlock()
@@ -99,6 +103,8 @@ func (h *OutboxHeartbeat) Start(
 				}
 
 				if !owned {
+					notiflog.From(ctx).Warn("outbox.heartbeat_ownership_lost")
+
 					mu.Lock()
 					ownershipLost = true
 					mu.Unlock()
@@ -106,6 +112,8 @@ func (h *OutboxHeartbeat) Start(
 					cancel()
 					return
 				}
+
+				notiflog.From(ctx).Debug("outbox.heartbeat_renewed")
 			}
 		}
 	}()

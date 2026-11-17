@@ -9,6 +9,7 @@ import (
 	"time"
 
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
+	"github.com/vishalyadav0987/authentication/pkg/notiflog"
 )
 
 const (
@@ -113,7 +114,22 @@ func (uc *UserInboxUseCase) MarkRead(
 		return time.Time{}, domain.ErrInboxItemNotFound
 	}
 
-	return uc.inbox.MarkRead(ctx, userID, notificationID)
+	readAt, err := uc.inbox.MarkRead(ctx, userID, notificationID)
+	if err != nil {
+		notiflog.From(ctx).Debug("inbox.mark_read_failed",
+			notiflog.KeyUserID, userID,
+			notiflog.KeyNotificationID, notificationID,
+			notiflog.Err(err),
+		)
+		return readAt, err
+	}
+
+	notiflog.From(ctx).Info("inbox.marked_read",
+		notiflog.KeyUserID, userID,
+		notiflog.KeyNotificationID, notificationID,
+	)
+
+	return readAt, nil
 }
 
 // MarkAllRead marks every unread notification as read.
@@ -126,7 +142,17 @@ func (uc *UserInboxUseCase) MarkAllRead(
 		return 0, errors.New("user ID is required")
 	}
 
-	return uc.inbox.MarkAllRead(ctx, userID)
+	updated, err := uc.inbox.MarkAllRead(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+
+	notiflog.From(ctx).Info("inbox.marked_all_read",
+		notiflog.KeyUserID, userID,
+		"updated", updated,
+	)
+
+	return updated, nil
 }
 
 // The cursor is opaque to clients: base64("<RFC3339Nano>|<notificationID>").
