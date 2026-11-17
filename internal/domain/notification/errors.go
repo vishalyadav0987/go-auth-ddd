@@ -18,5 +18,8 @@ var (
 	ErrDeliveryNotPending = errors.New("notification delivery is not pending")
 	ErrMaxRetriesExceeded = errors.New("maximum delivery retries exceeded")
 
-	ErrInvalidPagination = errors.New("invalid pagination parameters")
+	ErrInvalidPagination       = errors.New("invalid pagination parameters")
+	ErrDeliveryNotDeadLettered = errors.New(
+		"delivery is not in the dead letter queue",
+	)
 )

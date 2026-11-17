@@ -11,6 +11,15 @@ const (
 	OutboxFailed     OutboxEventStatus = "FAILED"
 )
 
+// Outbox event types used by the notification system.
+const (
+	OutboxEventNotificationCreated = "NOTIFICATION_CREATED"
+
+	// OutboxEventDeliveryRetryRequested represents an administrator's
+	// request to retry a previously dead-lettered delivery.
+	OutboxEventDeliveryRetryRequested = "DELIVERY_RETRY_REQUESTED"
+)
+
 type NotificationOutboxEvent struct {
 	ID          string
 	EventType   string

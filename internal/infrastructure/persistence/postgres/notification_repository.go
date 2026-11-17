@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	domain "github.com/vishalyadav0987/authentication/internal/domain/notification"
 )
 
@@ -822,6 +823,15 @@ func (r *NotificationRepository) ClaimDelivery(
 
 // If Worker A continues running, it must not be allowed to create a new attempt using its old token. We verify ownership inside the database transaction before incrementing the attempt count.
 
+const maxDeliveryAttemptsPerCycle = 5
+
+// CreateDeliveryAttempt creates a new delivery attempt.
+//
+// It uses a database transaction and SELECT FOR UPDATE to ensure
+// concurrent workers cannot exceed the retry limit.
+//
+// AttemptNumber is the lifetime attempt number.
+// RetryCycle identifies the current retry cycle.
 func (r *NotificationRepository) CreateDeliveryAttempt(
 	ctx context.Context,
 	deliveryID string,
@@ -829,106 +839,164 @@ func (r *NotificationRepository) CreateDeliveryAttempt(
 	attempt *domain.NotificationDeliveryAttempt,
 ) (int, error) {
 
-	if attempt == nil {
-		return 0, fmt.Errorf("attempt cannot be nil")
+	if deliveryID == "" {
+		return 0, fmt.Errorf("delivery ID is required")
 	}
 
+	if processingToken == "" {
+		return 0, fmt.Errorf("processing token is required")
+	}
+
+	if attempt == nil {
+		return 0, fmt.Errorf("delivery attempt is required")
+	}
+
+	// Step 1: Begin transaction.
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("begin attempt transaction: %w", err)
+		return 0, fmt.Errorf("failed to begin attempt transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	// 1. Lock the delivery and verify its processing status.
-	var currentAttemptCount int
+	// Step 2: Lock the delivery row.
+	//
+	// This prevents another worker from modifying the attempt count
+	// or retry cycle while this transaction is running.
+	var lifetimeAttemptCount int
+	var retryCycle int
+
+	query := `
+		SELECT
+			attempt_count,
+			retry_cycle
+		FROM notification_deliveries
+		WHERE id = $1
+			AND status = 'PROCESSING'
+			AND processing_token = $2
+		FOR UPDATE
+	`
 
 	err = tx.QueryRowContext(
 		ctx,
-		`
-    SELECT attempt_count
-        FROM notification_deliveries
-        WHERE id = $1
-          AND status = 'PROCESSING'
-          AND processing_token = $2
-        FOR UPDATE
-    `,
+		query,
 		deliveryID,
 		processingToken,
-	).Scan(&currentAttemptCount)
-
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, fmt.Errorf(
-				"delivery not found or not processing: %s",
-				deliveryID,
-			)
-		}
-
-		return 0, fmt.Errorf("lock notification delivery: %w", err)
-	}
-
-	const maxAttempts = 5
-
-	if currentAttemptCount >= maxAttempts {
-		return 0, domain.ErrMaxRetriesExceeded
-	}
-
-	// 2. Increment attempt count atomically.
-	var attemptNumber int
-
-	err = tx.QueryRowContext(
-		ctx,
-		`
-        UPDATE notification_deliveries
-        SET attempt_count = attempt_count + 1,
-            updated_at = NOW()
-        WHERE id = $1
-          AND status = 'PROCESSING'
-          AND processing_token = $2
-        RETURNING attempt_count
-        `,
-		deliveryID,
-		processingToken,
-	).Scan(&attemptNumber)
-
-	if err != nil {
-		return 0, fmt.Errorf("increment attempt count: %w", err)
-	}
-
-	// 3. Insert attempt history using the database-generated number.
-	_, err = tx.ExecContext(
-		ctx,
-		`
-        INSERT INTO notification_delivery_attempts (
-            id,
-            delivery_id,
-            attempt_number,
-            status,
-            provider_id,
-            error_message,
-            attempted_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `,
-		attempt.ID,
-		deliveryID,
-		attemptNumber,
-		"PROCESSING",
-		attempt.ProviderID,
-		attempt.ErrorMessage,
-		time.Now().UTC(),
+	).Scan(
+		&lifetimeAttemptCount,
+		&retryCycle,
 	)
 
 	if err != nil {
-		return 0, fmt.Errorf("insert delivery attempt: %w", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, domain.ErrDeliveryNotPending
+		}
+
+		return 0, fmt.Errorf("failed to lock delivery: %w", err)
 	}
 
-	// 4. Commit both database changes.
+	// Step 3: Count attempts belonging to the current retry cycle.
+	var cycleAttemptCount int
+
+	countQuery := `
+		SELECT COUNT(*)
+		FROM notification_delivery_attempts
+		WHERE delivery_id = $1
+			AND retry_cycle = $2
+	`
+
+	err = tx.QueryRowContext(
+		ctx,
+		countQuery,
+		deliveryID,
+		retryCycle,
+	).Scan(&cycleAttemptCount)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to count cycle attempts: %w", err)
+	}
+
+	// Step 4: Enforce the maximum attempts for this cycle.
+	if cycleAttemptCount >= maxDeliveryAttemptsPerCycle {
+		return 0, domain.ErrMaxRetriesExceeded
+	}
+
+	// Step 5: Calculate the next lifetime attempt number.
+	nextAttemptNumber := lifetimeAttemptCount + 1
+
+	// Step 6: Insert the attempt with its retry-cycle information.
+	insertQuery := `
+		INSERT INTO notification_delivery_attempts (
+			id,
+			delivery_id,
+			attempt_number,
+			retry_cycle,
+			status,
+			provider_id,
+			error_message,
+		)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8
+		)
+	`
+
+	_, err = tx.ExecContext(
+		ctx,
+		insertQuery,
+		attempt.ID,
+		deliveryID,
+		nextAttemptNumber,
+		retryCycle,
+		attempt.Status,
+		attempt.ProviderID,
+		attempt.ErrorMessage,
+	)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert delivery attempt: %w", err)
+	}
+
+	// Step 7: Increment the lifetime attempt count.
+	updateQuery := `
+		UPDATE notification_deliveries
+		SET
+			attempt_count = $1,
+			updated_at = NOW()
+		WHERE id = $2
+			AND status = 'PROCESSING'
+			AND processing_token = $3
+	`
+
+	result, err := tx.ExecContext(
+		ctx,
+		updateQuery,
+		nextAttemptNumber,
+		deliveryID,
+		processingToken,
+	)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to update lifetime attempt count: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to verify attempt count update: %w", err)
+	}
+
+	if rowsAffected != 1 {
+		return 0, domain.ErrDeliveryNotPending
+	}
+
+	// Step 8: Commit the transaction.
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit attempt transaction: %w", err)
+		return 0, fmt.Errorf("failed to commit delivery attempt: %w", err)
 	}
 
-	return attemptNumber, nil
+	// Step 9: Return the lifetime attempt number.
+	attempt.AttemptNumber = nextAttemptNumber
+	attempt.RetryCycle = retryCycle
+
+	return nextAttemptNumber, nil
 }
 
 func (r *NotificationRepository) HeartbeatDelivery(
@@ -1123,6 +1191,145 @@ func (r *NotificationRepository) GetDeadLetterDeliveries(
 	}
 
 	return deliveries, nil
+}
+
+// PrepareDeadLetterRetry atomically moves a DLQ delivery back to PENDING.
+//
+// It preserves the existing attempt history and clears the DLQ timestamp.
+// The returned delivery can then be scheduled through the outbox.
+func (r *NotificationRepository) PrepareDeadLetterRetry(
+	ctx context.Context,
+	deliveryID string,
+) (*domain.NotificationDelivery, error) {
+
+	if deliveryID == "" {
+		return nil, fmt.Errorf("delivery ID is required")
+	}
+
+	// Step 1: Begin database transaction.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin DLQ retry transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Step 2: Lock the eligible DLQ delivery and update it.
+	//
+	// The WHERE condition prevents retrying a delivery that is
+	// no longer in the Dead Letter Queue.
+	query := `
+		UPDATE notification_deliveries
+		SET
+			status = 'PENDING',
+			retry_cycle = retry_cycle + 1,
+			dead_lettered_at = NULL,
+			next_retry_at = NULL,
+			failure_reason = NULL,
+			processing_token = NULL,
+			processing_started_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1
+			AND status = 'FAILED'
+			AND dead_lettered_at IS NOT NULL
+		RETURNING
+			id,
+			notification_id,
+			user_id,
+			channel,
+			status,
+			recipient,
+			COALESCE(provider_id, ''),
+			COALESCE(failure_reason, ''),
+			attempt_count,
+			retry_cycle,
+			next_retry_at,
+			sent_at,
+			delivered_at,
+			dead_lettered_at,
+			created_at,
+			updated_at
+	`
+
+	delivery := &domain.NotificationDelivery{}
+
+	err = tx.QueryRowContext(ctx, query, deliveryID).Scan(
+		&delivery.ID,
+		&delivery.NotificationID,
+		&delivery.UserID,
+		&delivery.Channel,
+		&delivery.Status,
+		&delivery.Recipient,
+		&delivery.ProviderID,
+		&delivery.FailureReason,
+		&delivery.AttemptCount,
+		&delivery.RetryCycle,
+		&delivery.NextRetryAt,
+		&delivery.SentAt,
+		&delivery.DeliveredAt,
+		&delivery.DeadLetteredAt,
+		&delivery.CreatedAt,
+		&delivery.UpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrDeliveryNotDeadLettered
+		}
+
+		return nil, fmt.Errorf("failed to prepare dead-letter retry: %w", err)
+	}
+
+	// Step 2: Create an outbox event containing identifiers only.
+	event := domain.DeliveryRetryEvent{
+		DeliveryID:     delivery.ID,
+		NotificationID: delivery.NotificationID,
+		RetryCycle:     delivery.RetryCycle,
+		RequestedAt:    time.Now().UTC(),
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize retry event: %w", err)
+	}
+
+	// Step 3: Insert the event using the SAME transaction.
+	//
+	// IMPORTANT:
+	// Verify the column names against your existing outbox_events
+	// migration before using this query.
+	insertQuery := `
+		INSERT INTO outbox_events (
+			id,
+			event_type,
+			aggregate_id,
+			payload,
+			status,
+			attempts,
+			next_retry_at,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, 'PENDING', 0, NOW(), NOW(), NOW())
+	`
+
+	_, err = tx.ExecContext(
+		ctx,
+		insertQuery,
+		uuid.NewString(),
+		domain.OutboxEventDeliveryRetryRequested,
+		delivery.ID,
+		payload,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert retry outbox event: %w", err)
+	}
+
+	// Step 4: Commit both changes together.
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit DLQ retry transaction: %w", err)
+	}
+
+	return delivery, nil
 }
 
 var _ domain.NotificationRepository = (*NotificationRepository)(nil)

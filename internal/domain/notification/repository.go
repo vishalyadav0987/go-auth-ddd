@@ -157,4 +157,14 @@ type NotificationRepository interface {
 		limit int,
 		offset int,
 	) ([]*DeadLetterDelivery, error)
+
+	// PrepareDeadLetterRetry atomically moves a dead-lettered delivery
+	// back to PENDING so it can be scheduled for another delivery cycle.
+	//
+	// It must preserve the existing delivery attempt history.
+	// It must reject deliveries that are not currently in the DLQ.
+	PrepareDeadLetterRetry(
+		ctx context.Context,
+		deliveryID string,
+	) (*NotificationDelivery, error)
 }

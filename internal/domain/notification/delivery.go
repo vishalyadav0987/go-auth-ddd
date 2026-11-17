@@ -19,6 +19,11 @@ type NotificationDelivery struct {
 	DeliveredAt    *time.Time
 	DeadLetteredAt *time.Time
 
+	// RetryCycle identifies the current retry cycle.
+	// Cycle 0 is the original delivery.
+	// Every administrator-initiated retry increments this value.
+	RetryCycle int
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
