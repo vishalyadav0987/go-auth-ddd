@@ -56,7 +56,12 @@ const (
 var current atomic.Pointer[slog.Logger]
 
 func init() {
-	current.Store(slog.New(slog.NewTextHandler(os.Stdout, nil)).With("flow", "notification"))
+	// Default: colorized output when stdout is a terminal, plain text otherwise.
+	if IsTerminal(os.Stdout) {
+		current.Store(slog.New(NewColorHandler(os.Stdout, nil)))
+	} else {
+		current.Store(slog.New(slog.NewTextHandler(os.Stdout, nil)).With("flow", "notification"))
+	}
 }
 
 // L returns the notification-flow logger.
@@ -83,13 +88,23 @@ func Init() (func() error, error) {
 	opts := &slog.HandlerOptions{Level: level}
 
 	var stdout slog.Handler
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("NOTIFICATION_LOG_FORMAT"))) {
-	case "", "text":
+	format := strings.ToLower(strings.TrimSpace(os.Getenv("NOTIFICATION_LOG_FORMAT")))
+	switch format {
+	case "", "auto":
+		// Auto-detect: color if stdout is a terminal, plain text otherwise.
+		if IsTerminal(os.Stdout) {
+			stdout = NewColorHandler(os.Stdout, opts)
+		} else {
+			stdout = slog.NewTextHandler(os.Stdout, opts)
+		}
+	case "color":
+		stdout = NewColorHandler(os.Stdout, opts)
+	case "text":
 		stdout = slog.NewTextHandler(os.Stdout, opts)
 	case "json":
 		stdout = slog.NewJSONHandler(os.Stdout, opts)
 	default:
-		return nil, fmt.Errorf("invalid NOTIFICATION_LOG_FORMAT %q", os.Getenv("NOTIFICATION_LOG_FORMAT"))
+		return nil, fmt.Errorf("invalid NOTIFICATION_LOG_FORMAT %q (use auto|color|text|json)", os.Getenv("NOTIFICATION_LOG_FORMAT"))
 	}
 
 	handlers := []slog.Handler{stdout}
@@ -105,10 +120,11 @@ func Init() (func() error, error) {
 		closer = file.Close
 	}
 
-	current.Store(slog.New(fanout(handlers)).With("flow", "notification"))
+	current.Store(slog.New(fanout(handlers)))
 
 	L().Info("notiflog.configured",
 		"log_level", level.String(),
+		"log_format", format,
 		"file", os.Getenv("NOTIFICATION_LOG_FILE"),
 	)
 

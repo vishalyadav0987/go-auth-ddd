@@ -247,9 +247,9 @@ func (uc *SendNotificationUseCase) Execute(
 		notiflog.Since(start),
 	)
 
-	// Per-delivery IDs at debug level, to trace any single delivery.
+	// Per-delivery IDs to trace every single delivery.
 	for _, d := range deliveries {
-		lg.Debug("send.delivery_created",
+		lg.Info("send.delivery_created",
 			notiflog.KeyDeliveryID, d.ID,
 			notiflog.KeyUserID, d.UserID,
 			notiflog.KeyChannel, d.Channel,

@@ -99,7 +99,7 @@ func (uc *ProcessDeliveryUseCase) Execute(
 		notiflog.KeyRecipient, notiflog.MaskRecipient(string(delivery.Channel), delivery.Recipient),
 	)
 
-	lg.Debug("delivery.loaded",
+	lg.Info("delivery.loaded",
 		notiflog.KeyStatus, delivery.Status,
 		"attempt_count", delivery.AttemptCount,
 		"db_retry_cycle", delivery.RetryCycle,
@@ -279,7 +279,7 @@ func (uc *ProcessDeliveryUseCase) Execute(
 	var sendErr error
 
 	sendStart := time.Now()
-	lg.Debug("provider.send_started")
+	lg.Info("provider.send_started")
 
 	switch delivery.Channel {
 
