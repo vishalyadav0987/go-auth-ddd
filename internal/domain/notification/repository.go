@@ -198,4 +198,14 @@ type NotificationRepository interface {
 		ctx context.Context,
 		notificationID string,
 	) ([]*NotificationDelivery, error)
+
+	// 	We need a PostgreSQL operation that performs these two actions atomically:
+	// - Finds due RETRYING deliveries.
+	// - Changes them to PENDING and inserts their automatic retry outbox events.
+	// This prevents multiple scheduler instances from repeatedly scheduling the same delivery.
+
+	ScheduleDueDeliveryRetries(
+		ctx context.Context,
+		limit int,
+	) (int, error)
 }

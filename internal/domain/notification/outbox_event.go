@@ -21,6 +21,10 @@ const (
 	// OutboxEventDeliveryRetryRequested represents an administrator's
 	// request to retry a previously dead-lettered delivery.
 	OutboxEventDeliveryRetryRequested = "DELIVERY_RETRY_REQUESTED"
+
+	// OutboxEventDeliveryRetryDue represents an automatically scheduled
+	// retry whose next_retry_at time has arrived.
+	OutboxEventDeliveryRetryDue = "DELIVERY_RETRY_DUE"
 )
 
 // NotificationOutboxEvent is a row in notification_outbox_events.

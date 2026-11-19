@@ -280,6 +280,19 @@ func main() {
 		log.Fatalf("register notification outbox handler: %v", err)
 	}
 
+	// Automatically scheduled delivery retries.
+	if err := notificationOutboxDispatcher.Register(
+		domainNotification.OutboxEventDeliveryRetryDue,
+		notificationApp.NewDeliveryRetryDueEventHandler(
+			notificationApp.NewProcessDeliveryRetryDueUseCase(
+				notificationRepo,
+				deliveryPublisher,
+			),
+		),
+	); err != nil {
+		log.Fatalf("register automatic delivery retry handler: %v", err)
+	}
+
 	notificationOutboxWorker, err := outboxWorker.NewWorker(
 		notificationOutboxRepo,
 		notificationApp.NewProcessOutboxEventUseCase(

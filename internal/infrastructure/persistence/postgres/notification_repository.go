@@ -1611,6 +1611,177 @@ func (r *NotificationRepository) CreateNotificationWithDeliveriesAndOutbox(
 	return nil
 }
 
+// ScheduleDueDeliveryRetries atomically moves due RETRYING deliveries
+// back to PENDING and creates an outbox event for each delivery.
+//
+// FOR UPDATE SKIP LOCKED allows multiple scheduler instances to run
+// concurrently without scheduling the same delivery twice.
+
+// We’ll add it to the existing notification_repository.go. It will select only due RETRYING deliveries, lock them with FOR UPDATE SKIP LOCKED, move each to PENDING, and insert a DELIVERY_RETRY_DUE outbox event in the same transaction. That way, a failed outbox insert rolls back the status change too.
+
+func (r *NotificationRepository) ScheduleDueDeliveryRetries(
+	ctx context.Context,
+	limit int,
+) (int, error) {
+	if r == nil || r.db == nil {
+		return 0, fmt.Errorf("notification database is not configured")
+	}
+
+	if limit <= 0 {
+		return 0, fmt.Errorf("limit must be greater than zero")
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin retry scheduling transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	type dueDelivery struct {
+		ID             string
+		NotificationID string
+		RetryCycle     int
+		AttemptCount   int
+	}
+
+	// Step 1: Lock a batch of deliveries whose retry time has arrived.
+	rows, err := tx.QueryContext(
+		ctx,
+		`
+		SELECT
+			id,
+			notification_id,
+			retry_cycle,
+			attempt_count
+		FROM notification_deliveries
+		WHERE status = 'RETRYING'
+		  AND next_retry_at IS NOT NULL
+		  AND next_retry_at <= NOW()
+		ORDER BY next_retry_at ASC, id ASC
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+		`,
+		limit,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("select due retry deliveries: %w", err)
+	}
+
+	var deliveries []dueDelivery
+
+	for rows.Next() {
+		var delivery dueDelivery
+
+		if err := rows.Scan(
+			&delivery.ID,
+			&delivery.NotificationID,
+			&delivery.RetryCycle,
+			&delivery.AttemptCount,
+		); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan due retry delivery: %w", err)
+		}
+
+		deliveries = append(deliveries, delivery)
+	}
+
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("iterate due retry deliveries: %w", err)
+	}
+
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("close due retry rows: %w", err)
+	}
+
+	// Step 2: Move each locked delivery back to PENDING
+	// and create its corresponding outbox event.
+	for _, delivery := range deliveries {
+		result, err := tx.ExecContext(
+			ctx,
+			`
+			UPDATE notification_deliveries
+			SET
+				status = 'PENDING',
+				next_retry_at = NULL,
+				processing_token = NULL,
+				processing_started_at = NULL,
+				updated_at = NOW()
+			WHERE id = $1
+			  AND status = 'RETRYING'
+			  AND retry_cycle = $2
+			  AND next_retry_at <= NOW()
+			`,
+			delivery.ID,
+			delivery.RetryCycle,
+		)
+		if err != nil {
+			return 0, fmt.Errorf(
+				"move delivery %s to pending: %w",
+				delivery.ID,
+				err,
+			)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return 0, fmt.Errorf(
+				"check delivery %s update: %w",
+				delivery.ID,
+				err,
+			)
+		}
+
+		if rowsAffected != 1 {
+			return 0, fmt.Errorf(
+				"delivery %s was not updated as expected",
+				delivery.ID,
+			)
+		}
+
+		// Keep the retry generation unchanged.
+		// AttemptCount identifies the attempt being scheduled.
+		retryEvent := domain.DeliveryRetryDueEvent{
+			DeliveryID:     delivery.ID,
+			NotificationID: delivery.NotificationID,
+			RetryCycle:     delivery.RetryCycle,
+			AttemptCount:   delivery.AttemptCount,
+			ScheduledAt:    time.Now().UTC(),
+		}
+
+		payload, err := json.Marshal(retryEvent)
+		if err != nil {
+			return 0, fmt.Errorf(
+				"marshal retry event for delivery %s: %w",
+				delivery.ID,
+				err,
+			)
+		}
+
+		event := &domain.NotificationOutboxEvent{
+			ID:          uuid.NewString(),
+			EventType:   domain.OutboxEventDeliveryRetryDue,
+			AggregateID: delivery.ID,
+			Payload:     payload,
+		}
+
+		if err := insertNotificationOutboxEvent(ctx, tx, event); err != nil {
+			return 0, fmt.Errorf(
+				"insert retry outbox event for delivery %s: %w",
+				delivery.ID,
+				err,
+			)
+		}
+	}
+
+	// Step 3: Commit all delivery updates and outbox events together.
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit retry scheduling transaction: %w", err)
+	}
+
+	return len(deliveries), nil
+}
+
 var _ domain.NotificationRepository = (*NotificationRepository)(nil)
 
 // Why is this useful?
