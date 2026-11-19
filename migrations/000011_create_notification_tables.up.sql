@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
             'ACCEPTED',
             'DELIVERED',
             'FAILED',
-            'CANCELLED',
+            'CANCELLED'
         )),
 
     CONSTRAINT chk_delivery_attempt_count

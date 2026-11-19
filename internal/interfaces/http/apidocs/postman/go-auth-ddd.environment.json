@@ -1,0 +1,144 @@
+{
+  "name": "go-auth-ddd API - Local",
+  "values": [
+    {
+      "key": "baseURL",
+      "value": "http://localhost:8080",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "deliveryId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "fcmToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "inboxCursor",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "newPassword",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "notificationId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "otp",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "otpAccessToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "otpVerificationToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "resetOtpVerificationToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "resetPasswordToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "scheduledAt",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "userEmail",
+      "value": "test@example.com",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "userMobile",
+      "value": "9999999999",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "userMpin",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "userPassword",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "webhookSignature",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "webhookTimestamp",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}

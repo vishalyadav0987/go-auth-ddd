@@ -1,0 +1,1487 @@
+{
+  "info": {
+    "name": "go-auth-ddd API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/test",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "test"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "auth": {
+        "type": "noauth"
+      }
+    },
+    {
+      "name": "01 - Auth",
+      "item": [
+        {
+          "name": "01 - Login (Password -> MPIN)",
+          "item": [
+            {
+              "name": "1. Login with Password",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/auth/login-with-password",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "login-with-password"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"otpAccessToken\", body?.data?.otpAccessToken);",
+                      "save(\"userId\", body?.data?.userData?.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Login with MPIN (-> accessToken)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/auth/login-with-mpin",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "login-with-mpin"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mpin\": \"{{userMpin}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{otpAccessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"accessToken\", body?.data?.accessToken);"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          }
+        },
+        {
+          "name": "02 - Login (OTP -> MPIN)",
+          "item": [
+            {
+              "name": "1. Request OTP",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/auth/login-with-otp",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "login-with-otp"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"mobile\": \"\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"otpVerificationToken\", body?.data?.otpVerificationToken);",
+                      "console.log(\"Check the server console / email for the OTP, then set otp in the environment.\");"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Verify OTP (-> otpAccessToken)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/auth/verify-otp",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "verify-otp"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"otp\": \"{{otp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{otpVerificationToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"otpAccessToken\", body?.data?.otpAccessToken);",
+                      "save(\"userId\", body?.data?.userData?.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "3. Login with MPIN (-> accessToken)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/auth/login-with-mpin",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "login-with-mpin"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mpin\": \"{{userMpin}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{otpAccessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"accessToken\", body?.data?.accessToken);"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          }
+        },
+        {
+          "name": "03 - Password Reset",
+          "item": [
+            {
+              "name": "1. Request Reset OTP",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/auth/password/reset/request",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "password",
+                    "reset",
+                    "request"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"mobile\": \"\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"resetOtpVerificationToken\", body?.data?.otpVerificationToken);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Verify Reset OTP (-> resetPasswordToken)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/auth/password/reset/verify-otp",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "password",
+                    "reset",
+                    "verify-otp"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"otp\": \"{{otp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{resetOtpVerificationToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"resetPasswordToken\", body?.data?.resetPasswordToken);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "3. Set New Password",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/auth/password/reset/confirm",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "password",
+                    "reset",
+                    "confirm"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"new_password\": \"{{newPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{resetPasswordToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          }
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/auth/register",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"mobile\": \"{{userMobile}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                  "const save = (key, value) => {",
+                  "  if (value === undefined || value === null || value === \"\") return;",
+                  "  pm.environment.set(key, String(value));",
+                  "  console.log(`Saved ${key} to environment`);",
+                  "};",
+                  "save(\"userId\", body?.data?.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "auth": {
+        "type": "noauth"
+      }
+    },
+    {
+      "name": "02 - Orders & Payments",
+      "item": [
+        {
+          "name": "Create Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/order/create",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "order",
+                "create"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheme_code\": \"INF200K01RJ1\",\n  \"amount_paise\": 50000,\n  \"investment_type\": \"LUMPSUM\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fresh Idempotency-Key per send. To test idempotent replay,",
+                  "// comment out the line below and re-send with the same key.",
+                  "pm.environment.set(\"idempotencyKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                  "const save = (key, value) => {",
+                  "  if (value === undefined || value === null || value === \"\") return;",
+                  "  pm.environment.set(key, String(value));",
+                  "  console.log(`Saved ${key} to environment`);",
+                  "};",
+                  "save(\"orderId\", body?.order_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/payment/create",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payment",
+                "create"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_id\": \"{{orderId}}\",\n  \"customer_phone\": \"{{userMobile}}\",\n  \"customer_email\": \"{{userEmail}}\",\n  \"return_url\": \"\",\n  \"notify_url\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fresh Idempotency-Key per send. To test idempotent replay,",
+                  "// comment out the line below and re-send with the same key.",
+                  "pm.environment.set(\"idempotencyKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                  "const save = (key, value) => {",
+                  "  if (value === undefined || value === null || value === \"\") return;",
+                  "  pm.environment.set(key, String(value));",
+                  "  console.log(`Saved ${key} to environment`);",
+                  "};",
+                  "save(\"paymentId\", body?.payment_id);",
+                  "save(\"paymentSessionId\", body?.payment_session_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payment Webhook (Cashfree)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-webhook-signature",
+                "value": "{{webhookSignature}}"
+              },
+              {
+                "key": "x-webhook-timestamp",
+                "value": "{{webhookTimestamp}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/payments/webhook",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "webhook"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"PAYMENT_SUCCESS_WEBHOOK\",\n  \"data\": {\n    \"order\": {\n      \"order_id\": \"{{orderId}}\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requires a valid Cashfree signature; expect 401 without one.",
+                  "pm.test(\"Responds\", () => pm.expect(pm.response.code).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "03 - Notifications (User)",
+      "item": [
+        {
+          "name": "Inbox",
+          "item": [
+            {
+              "name": "List Notifications",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications?limit=20",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"notificationId\", body?.data?.items?.[0]?.id);",
+                      "save(\"inboxCursor\", body?.data?.next_cursor);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Notifications (next page)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications?limit=20&cursor={{inboxCursor}}",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "{{inboxCursor}}"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"inboxCursor\", body?.data?.next_cursor);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Get Notification",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications/{{notificationId}}",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "{{notificationId}}"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Mark as Read",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications/{{notificationId}}/read",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "{{notificationId}}",
+                    "read"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Mark All as Read",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications/read-all",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "read-all"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Preferences",
+          "item": [
+            {
+              "name": "Get Preferences",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications/preferences",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "preferences"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update Preferences",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications/preferences",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "preferences"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"preferences\": [\n    {\n      \"type\": \"MARKETING\",\n      \"email_enabled\": false,\n      \"push_enabled\": true\n    },\n    {\n      \"type\": \"ANNOUNCEMENT\",\n      \"email_enabled\": true,\n      \"push_enabled\": true\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Devices (FCM)",
+          "item": [
+            {
+              "name": "Register Device",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications/devices",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "devices"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fcm_token\": \"{{fcmToken}}\",\n  \"platform\": \"ANDROID\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                      "",
+                      "let body = {};",
+                      "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                      "const save = (key, value) => {",
+                      "  if (value === undefined || value === null || value === \"\") return;",
+                      "  pm.environment.set(key, String(value));",
+                      "  console.log(`Saved ${key} to environment`);",
+                      "};",
+                      "save(\"deviceId\", body?.data?.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Remove Device",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseURL}}/api/v1/notifications/devices/{{deviceId}}",
+                  "host": [
+                    "{{baseURL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "devices",
+                    "{{deviceId}}"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "04 - Notifications (Admin)",
+      "item": [
+        {
+          "name": "Send Notification (single user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/notification/send",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification",
+                "send"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ANNOUNCEMENT\",\n  \"priority\": \"HIGH\",\n  \"title\": \"Hello from Hoppscotch\",\n  \"body\": \"Test notification\",\n  \"html_body\": \"<p>Test notification</p>\",\n  \"channels\": [\n    \"EMAIL\"\n  ],\n  \"target\": {\n    \"type\": \"SINGLE_USER\",\n    \"user_ids\": [\n      \"{{userId}}\"\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 202\", () => pm.response.to.have.status(202));",
+                  "",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                  "const save = (key, value) => {",
+                  "  if (value === undefined || value === null || value === \"\") return;",
+                  "  pm.environment.set(key, String(value));",
+                  "  console.log(`Saved ${key} to environment`);",
+                  "};",
+                  "save(\"notificationId\", body?.data?.notification_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send Notification (all users, email + push)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/notification/send",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification",
+                "send"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ANNOUNCEMENT\",\n  \"priority\": \"NORMAL\",\n  \"title\": \"Maintenance\",\n  \"body\": \"Tonight 2-3 AM\",\n  \"html_body\": \"<p>Tonight 2-3 AM</p>\",\n  \"channels\": [\n    \"EMAIL\",\n    \"PUSH\"\n  ],\n  \"target\": {\n    \"type\": \"ALL_USERS\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 202\", () => pm.response.to.have.status(202));",
+                  "",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                  "const save = (key, value) => {",
+                  "  if (value === undefined || value === null || value === \"\") return;",
+                  "  pm.environment.set(key, String(value));",
+                  "  console.log(`Saved ${key} to environment`);",
+                  "};",
+                  "save(\"notificationId\", body?.data?.notification_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send Notification (scheduled)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/notification/send",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification",
+                "send"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ANNOUNCEMENT\",\n  \"priority\": \"LOW\",\n  \"title\": \"Scheduled\",\n  \"body\": \"Sent later\",\n  \"html_body\": \"<p>Sent later</p>\",\n  \"channels\": [\n    \"EMAIL\"\n  ],\n  \"target\": {\n    \"type\": \"SINGLE_USER\",\n    \"user_ids\": [\n      \"{{userId}}\"\n    ]\n  },\n  \"scheduled_at\": \"{{scheduledAt}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Schedule 10 minutes from now.",
+                  "pm.environment.set(\"scheduledAt\", new Date(Date.now() + 10 * 60 * 1000).toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 202\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Dead-Letter Deliveries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/notification/dead-letter-deliveries?limit=20&offset=0",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification",
+                "dead-letter-deliveries"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { /* non-JSON response */ }",
+                  "const save = (key, value) => {",
+                  "  if (value === undefined || value === null || value === \"\") return;",
+                  "  pm.environment.set(key, String(value));",
+                  "  console.log(`Saved ${key} to environment`);",
+                  "};",
+                  "save(\"deliveryId\", body?.data?.[0]?.delivery_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Dead-Letter Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/notification/dead-letter-deliveries/{{deliveryId}}",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification",
+                "dead-letter-deliveries",
+                "{{deliveryId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 2xx\", () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Retry Dead-Letter Delivery",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseURL}}/api/v1/notification/dead-letters/{{deliveryId}}/retry",
+              "host": [
+                "{{baseURL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification",
+                "dead-letters",
+                "{{deliveryId}}",
+                "retry"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 202\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ],
+  "auth": {
+    "type": "noauth"
+  }
+}
